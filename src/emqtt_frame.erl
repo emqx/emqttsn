@@ -47,12 +47,12 @@
 %% Init Parse State
 %%--------------------------------------------------------------------
 
--spec initial_parse_state() -> {none, options()}.
-initial_parse_state() ->
-    initial_parse_state(#{}).
+-spec initial_state() -> {none, options()}.
+initial_state() ->
+    initial_state(#{}).
 
--spec initial_parse_state(options()) -> {none, options()}.
-initial_parse_state(Options) when is_map(Options) ->
+-spec initial_state(options()) -> {none, options()}.
+initial_state(Options) when is_map(Options) ->
     merge_opts(Options).
 
 %% @pivate
@@ -63,14 +63,16 @@ merge_opts(Options) ->
 %% Parse MQTT-SN Frame
 %%--------------------------------------------------------------------
 
+% parser API for packet
 -spec parse(binary()) -> parse_result().
 parse(Bin) ->
-    parse(Bin, initial_parse_state()).
+    parse(Bin, initial_state()).
 
 -spec parse(binary(), options()) -> parse_result().
 parse(Bin, Options) ->
     parse_leading_len(Bin, Options).
 
+% parse and verify the length of packet
 -spec parse_leading_len(binary(), options()) -> parse_result().
 parse_leading_len(<<16#01, Length:16/binary, Rest/binary>>,
                   Options = #{strict_mode := StrictMode}) ->
@@ -83,13 +85,15 @@ parse_leading_len(<<Length:8/binary, Rest/binary>>,
     StrictMode andalso byte_size(Rest) + 1 == Length,
     parse_payload_type(Rest, Options).
 
+% parse the message type to a header of packet
 -spec parse_payload_type(binary(), options()) -> parse_result().
 parse_payload_type(<<Type:8/binary, Rest/binary>>, Options) ->
     Header = #mqtt_packet_header{type = Type},
     Payload = parse_payload(Rest, Header, Options),
     #mqtt_packet{header = Header, payload = Payload}.
 
--spec parse_payload(binary(), packet_header(), options()) -> parse_result().
+% dispatch to the parser of different message type
+-spec parse_payload(binary(), #mqtt_packet_header{}, options()) -> parse_result().
 parse_payload(<<GwId:8/binary, Duration:16/binary>>,
               #mqtt_packet_header{type = ?ADVERTISE},
               Option) ->
@@ -187,3 +191,155 @@ parse_disconnect_msg(<<>>, Option) ->
     #mqtt_packet_disconnect{empty_packet = true};
 parse_disconnect_msg(<<Duration:16/binary>>, Option) ->
     #mqtt_packet_disconnect{empty_packet = false, duration = Duration}.
+
+%%--------------------------------------------------------------------
+%% Serialize MQTT Packet
+%%--------------------------------------------------------------------
+
+-spec serialize(#mqtt_packet{}, options()) -> iodata().
+serialize(#mqtt_packet{header = Header, payload = Payload}, Option) ->
+    PayloadBin = serialize_payload(Payload, Option),
+    Length = iolist_size(PayloadBin),
+    HeaderBin = serialize_header(Header, Length, Option),
+    [HeaderBin, PayloadBin].
+
+-spec serialize_header(#mqtt_packet_header{}, integer(), options()) -> iodata().
+serialize_header(#mqtt_packet_header{type = Type}, Length, Option) when Length < 256 ->
+    <<Length:8, Type:8>>;
+serialize_header(#mqtt_packet_header{type = Type}, Length, Option)
+    when 256 =< Length andalso Length =< ?MAX_PACKET_SIZE ->
+    <<16#01:1, Length:16, Type:8>>.
+
+-spec serialize_flag(#mqtt_packet_flag{}, options()) -> iodata().
+serialize_flag(#mqtt_packet_flag{dup = Dup,
+                                 qos = Qos,
+                                 retain = Retain,
+                                 will = Will,
+                                 clean_session = CleanSession,
+                                 topic_id_type = TopicIdType},
+               Option) ->
+    <<Dup:1, Qos:2, Retain:1, Will:1, CleanSession:1, TopicIdType:2>>.
+
+-spec serialize_payload(packet_payload(), options()) -> iodata().
+serialize_payload(#mqtt_packet_searchgw{radius = Radius}, Option) ->
+    <<Radius:8>>;
+serialize_payload(#mqtt_packet_gwinfo{source = Source,
+                                      gateway_id = GateWayId,
+                                      gateway_add = GateWayAdd},
+                  Options = #{strict_mode := StrictMode}) ->
+    StrictMode andalso Source == ?CLIENT,
+    [<<GateWayId:8>>, GateWayAdd];
+serialize_payload(#mqtt_packet_connect{flag = Flag,
+                                       duration = Duration,
+                                       client_id = ClientId},
+                  Option) ->
+    SerFlag = serialize_flag(Flag, Option),
+    [SerFlag, <<16#01:1, Duration:2, ClientId>>];
+serialize_payload(#mqtt_packet_willtopic{} = Bin, Option) ->
+    serialize_will_topic(Bin, Option);
+serialize_payload(#mqtt_packet_willmsg{will_msg = WillMsg}, Option) ->
+    <<WillMsg>>;
+serialize_payload(#mqtt_packet_register{source = ?SERVER,
+                                        topic_id = TopicId,
+                                        packet_id = MsgId,
+                                        topic_name = TopicName},
+                  Option) ->
+    <<TopicId:16/binary, MsgId:16/binary, TopicName/binary>>;
+serialize_payload(#mqtt_packet_regack{topic_id = TopicId,
+                                      packet_id = MsgId,
+                                      return_code = ReturnCode},
+                  Option) ->
+    <<TopicId:16/binary, MsgId:16/binary, ReturnCode:8/binary>>;
+serialize_payload(#mqtt_packet_publish{flag = Flag,
+                                       topic_id = TopicId,
+                                       packet_id = MsgId,
+                                       data = Data},
+                  Option) ->
+    SerFlag = serialize_flag(Flag, Option),
+    <<SerFlag:8/binary, TopicId:16/binary, MsgId:16/binary, Data/binary>>;
+serialize_payload(#mqtt_packet_puback{topic_id = TopicId,
+                                      packet_id = MsgId,
+                                      return_code = ReturnCode},
+                  Option) ->
+    <<TopicId:16/binary, MsgId:16/binary, ReturnCode:8/binary>>;
+serialize_payload(#mqtt_packet_pubrec{packet_id = MsgId}, Option) ->
+    <<MsgId:16/binary>>;
+serialize_payload(#mqtt_packet_pubrel{packet_id = MsgId}, Option) ->
+    <<MsgId:16/binary>>;
+serialize_payload(#mqtt_packet_pubcomp{packet_id = MsgId}, Option) ->
+    <<MsgId:16/binary>>;
+serialize_payload(#mqtt_packet_subscribe{flag = Flag,
+                                         packet_id = MsgId,
+                                         topic_name = TopicName,
+                                         topic_id = TopicId},
+                  Option) ->
+    SerFlag = serialize_flag(Flag, Option),
+    Data = serialize_topic_name_or_id(Flag, TopicName, TopicId),
+    <<SerFlag:8/binary, MsgId:16/binary, Data>>;
+serialize_payload(#mqtt_packet_unsubscribe{flag = Flag,
+                                           packet_id = MsgId,
+                                           topic_name = TopicName,
+                                           topic_id = TopicId},
+                  Option) ->
+    SerFlag = serialize_flag(Flag, Option),
+    Data = serialize_topic_name_or_id(Flag, TopicName, TopicId),
+    <<SerFlag:8/binary, MsgId:16/binary, Data>>;
+serialize_payload(#mqtt_packet_pingreq{} = Bin, Option) ->
+    serialize_pingreq(Bin, Option);
+serialize_payload(#mqtt_packet_pingresp{}, Option) ->
+    <<>>;
+serialize_payload(#mqtt_packet_disconnect{} = Bin, Option) ->
+    serialize_disconnect(Bin, Option);
+serialize_payload(#mqtt_packet_willtopicupd{} = Bin, Option) ->
+    serialize_willtopicupd(Bin, Option);
+serialize_payload(#mqtt_packet_willmsgupd{will_msg = WillMsg}, Option) ->
+    <<WillMsg>>.
+
+% serialize willTopic packet payload
+-spec serialize_will_topic(#mqtt_packet_willtopic{}, options()) -> iodata().
+serialize_will_topic(#mqtt_packet_willtopic{empty_packet = true}, Option) ->
+    <<>>;
+serialize_will_topic(#mqtt_packet_willtopic{empty_packet = false,
+                                            flag = Flag,
+                                            will_topic = WillTopic},
+                     Option) ->
+    SerFlag = serialize_flag(Flag, Option),
+    [SerFlag, <<WillTopic>>].
+
+% serialize topicName or topicId by Flag argument topicIdType
+-spec serialize_topic_name_or_id(#mqtt_packet_flag{}, bitstring(), topic_id()) ->
+                                    iodata().
+serialize_topic_name_or_id(Flag = #mqtt_packet_flag{topic_id_type = ?PRE_DEF_TOPIC_ID},
+                           _TopicName,
+                           TopicId) ->
+    <<TopicId:2>>;
+serialize_topic_name_or_id(Flag =
+                               #mqtt_packet_flag{topic_id_type = [?SHORT_TOPIC_NAME | ?TOPIC_NAME]},
+                           TopicName,
+                           _TopicId) ->
+    <<TopicName>>.
+
+% serialize pingReq packet payload
+-spec serialize_pingreq(#mqtt_packet_pingreq{}, options()) -> iodata().
+serialize_pingreq(#mqtt_packet_pingreq{empty_packet = true}, Option) ->
+    <<>>;
+serialize_pingreq(#mqtt_packet_pingreq{empty_packet = false, client_id = ClienId},
+                  Option) ->
+    <<ClienId>>.
+
+-spec serialize_disconnect(#mqtt_packet_disconnect{}, options()) -> iodata().
+serialize_disconnect(#mqtt_packet_disconnect{empty_packet = true}, Option) ->
+    <<>>;
+serialize_disconnect(#mqtt_packet_disconnect{empty_packet = false, duration = Duration},
+                     Option) ->
+    <<Duration:2/binary>>.
+
+-spec serialize_willtopicupd(#mqtt_packet_willtopicupd{}, options()) -> iodata().
+serialize_willtopicupd(#mqtt_packet_willtopicupd{empty_packet = true}, Option) ->
+    <<>>;
+serialize_willtopicupd(#mqtt_packet_willtopicupd{empty_packet = true,
+                                                 flag = Flag,
+                                                 will_topic = WillTopic},
+                       Option) ->
+    SerFlag = serialize_flag(Flag, Option),
+    <<SerFlag:8/binary, WillTopic>>.

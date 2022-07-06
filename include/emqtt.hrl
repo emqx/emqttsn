@@ -22,8 +22,8 @@
 %% MQTT-SN Protocol Version and Names
 %%--------------------------------------------------------------------
 
--define(MQTTSN_PROTO_V1_2, 0).
--define(PROTOCOL_NAMES, [ { '?,MQTTSN_PROTO_V1_2' , << "MQTT-SN" >> } , ] ).
+-define(MQTTSN_PROTO_V1_2, 2).
+-define(PROTOCOL_NAMES, [{?MQTTSN_PROTO_V1_2, <<"MQTT-SN">>}]).
 
 %%--------------------------------------------------------------------
 %% MQTT-SN QoS Levels
@@ -174,7 +174,7 @@
 %%--------------------------------------------------------------------
 
 -define(MAX_PACKET_ID, 16#ffff).
--define(MAX_PACKET_SIZE, 16#fffffff).
+-define(MAX_PACKET_SIZE, 65535).
 
 %%--------------------------------------------------------------------
 %% MQTT-SN Frame Mask
@@ -198,8 +198,6 @@
 %%--------------------------------------------------------------------
 
 -record(mqtt_packet_header, {type :: msg_type()}).
-
--type packet_header() :: #mqtt_packet_header{}.
 
 %%--------------------------------------------------------------------
 %% MQTT Packets
@@ -241,7 +239,7 @@
          gateway_id :: integer,
          gateway_add = ?DEFAULT_ADDRESS :: inet:ip_address()}).
 -record(mqtt_packet_connect,
-        {proto_name = <<"MQTT-SN">> :: bitstring(),
+        {proto_name = proplists:get_value(?MQTTSN_PROTO_V1_2, ?PROTOCOL_NAMES) :: bitstring(),
          proto_ver = ?MQTTSN_PROTO_V1_2,
          flag :: #mqtt_packet_flag{},
          duration :: integer(),
@@ -275,7 +273,7 @@
         {flag :: #mqtt_packet_flag{},
          packet_id :: packet_id(),
          topic_name = <<>> :: bitstring(),
-         topic_id = 0 :: bitstring()}).
+         topic_id = 0 :: topic_id()}).
 -record(mqtt_packet_suback,
         {flag :: #mqtt_packet_flag{},
          topic_id :: topic_id(),
@@ -285,9 +283,9 @@
         {flag :: #mqtt_packet_flag{},
          packet_id :: packet_id(),
          topic_name = <<>> :: bitstring(),
-         topic_id = 0 :: bitstring()}).
+         topic_id = 0 :: topic_id()}).
 -record(mqtt_packet_unsuback, {packet_id :: packet_id()}).
--record(mqtt_packet_pingreq, {client_id :: bitstring()}).
+-record(mqtt_packet_pingreq, {empty_packet :: boolean(), client_id :: bitstring()}).
 -record(mqtt_packet_pingresp, {}).
 -record(mqtt_packet_disconnect, {empty_packet :: boolean(), duration = 0 :: integer()}).
 -record(mqtt_packet_willtopicupd,
@@ -302,33 +300,33 @@
 %% MQTT Control Packet
 %%--------------------------------------------------------------------
 
--record(mqtt_packet,
-        {header :: #mqtt_packet_header{},
-         payload ::
-                 #mqtt_packet_advertise{} |
-                 #mqtt_packet_searchgw{} |
-                 #mqtt_packet_gwinfo{} |
-                 #mqtt_packet_connect{} |
-                 #mqtt_packet_connack{} |
-                 #mqtt_packet_willtopicreq{} |
-                 #mqtt_packet_willtopic{} |
-                 #mqtt_packet_willmsgreq{} |
-                 #mqtt_packet_willmsg{} |
-                 #mqtt_packet_register{} |
-                 #mqtt_packet_regack{} |
-                 #mqtt_packet_publish{} |
-                 #mqtt_packet_puback{} |
-                 #mqtt_packet_subscribe{} |
-                 #mqtt_packet_suback{} |
-                 #mqtt_packet_unsubscribe{} |
-                 #mqtt_packet_unsuback{} |
-                 #mqtt_packet_pingreq{} |
-                 #mqtt_packet_pingresp{} |
-                 #mqtt_packet_disconnect{} |
-                 #mqtt_packet_willtopicupd{} |
-                 #mqtt_packet_willmsgupd{} |
-                 #mqtt_packet_willtopicresp{} |
-                 #mqtt_packet_willmsgresp{}}).
+-type packet_payload() ::
+        #mqtt_packet_advertise{} |
+        #mqtt_packet_searchgw{} |
+        #mqtt_packet_gwinfo{} |
+        #mqtt_packet_connect{} |
+        #mqtt_packet_connack{} |
+        #mqtt_packet_willtopicreq{} |
+        #mqtt_packet_willtopic{} |
+        #mqtt_packet_willmsgreq{} |
+        #mqtt_packet_willmsg{} |
+        #mqtt_packet_register{} |
+        #mqtt_packet_regack{} |
+        #mqtt_packet_publish{} |
+        #mqtt_packet_puback{} |
+        #mqtt_packet_subscribe{} |
+        #mqtt_packet_suback{} |
+        #mqtt_packet_unsubscribe{} |
+        #mqtt_packet_unsuback{} |
+        #mqtt_packet_pingreq{} |
+        #mqtt_packet_pingresp{} |
+        #mqtt_packet_disconnect{} |
+        #mqtt_packet_willtopicupd{} |
+        #mqtt_packet_willmsgupd{} |
+        #mqtt_packet_willtopicresp{} |
+        #mqtt_packet_willmsgresp{}.
+
+-record(mqtt_packet, {header :: #mqtt_packet_header{}, payload :: packet_payload()}).
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Match
@@ -475,9 +473,7 @@
         #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
                      payload =
                              #mqtt_packet_unsubscribe{flag =
-                                                              #mqtt_packet_flag{dup = Dup,
-                                                                                qos = Qos,
-                                                                                topic_id_type =
+                                                              #mqtt_packet_flag{topic_id_type =
                                                                                         ?PRE_DEF_TOPIC_ID},
                                                       packet_id = PacketId,
                                                       topic_id = TopicId}}).
@@ -485,9 +481,7 @@
         #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
                      payload =
                              #mqtt_packet_unsubscribe{flag =
-                                                              #mqtt_packet_flag{dup = Dup,
-                                                                                qos = Qos,
-                                                                                topic_id_type =
+                                                              #mqtt_packet_flag{topic_id_type =
                                                                                         TopicIdTypeNotId},
                                                       packet_id = PacketId,
                                                       topic_name = TopicName}}).
