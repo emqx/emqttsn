@@ -157,6 +157,7 @@
 -define(SHORT_TOPIC_NAME, 2#01).
 
 -type topic_id_type() :: 2#00..2#11.
+-type topic_id_or_name() :: bitstring() | string().
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Fixed Header
@@ -197,11 +198,11 @@
 -type flag() :: #mqtt_packet_flag{}.
 
 %% MQTT-SN packets types
--record(mqtt_packet_advertise, {gateway_id :: integer(), duration :: integer()}).
+-record(mqtt_packet_advertise, {gateway_id :: bitstring(), duration :: integer()}).
 -record(mqtt_packet_searchgw, {radius :: integer()}).
 -record(mqtt_packet_gwinfo,
 {source :: msg_src(),
- gateway_id :: integer,
+ gateway_id :: bitstring(),
  gateway_add = ?DEFAULT_ADDRESS :: inet:ip_address()}).
 -record(mqtt_packet_connect,
 {proto_name = proplists:get_value(?MQTTSN_PROTO_V1_2, ?PROTOCOL_NAMES) :: bitstring(),
@@ -417,22 +418,22 @@
   #mqtt_packet{header = #mqtt_packet_header{type = ?PUBCOMP},
                payload = #mqtt_packet_pubcomp{packet_id = PacketId}}).
 
--define(SUBSCRIBE_PACKET(PacketId, TopicId),
+-define(SUBSCRIBE_PACKET(PacketId, TopicId, MaxQos),
   #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
                payload =
                #mqtt_packet_subscribe{flag =
                                       #mqtt_packet_flag{dup = Dup,
-                                                        qos = Qos,
+                                                        qos = MaxQos,
                                                         topic_id_type =
                                                         ?PRE_DEF_TOPIC_ID},
                                       packet_id = PacketId,
                                       topic_id = TopicId}}).
--define(SUBSCRIBE_PACKET(TopicIdTypeNotId, PacketId, TopicName),
+-define(SUBSCRIBE_PACKET(TopicIdTypeNotId, PacketId, TopicName, MaxQos),
   #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
                payload =
                #mqtt_packet_subscribe{flag =
                                       #mqtt_packet_flag{dup = Dup,
-                                                        qos = Qos,
+                                                        qos = MaxQos,
                                                         topic_id_type =
                                                         TopicIdTypeNotId},
                                       packet_id = PacketId,

@@ -14,7 +14,7 @@
 %% limitations under the License.
 %%-------------------------------------------------------------------------
 
--module(emqtt_frame).
+-module(emqttsn_frame).
 
 -include("packet.hrl").
 -include("config.hrl").
@@ -39,18 +39,6 @@
 parse(Bin) ->
   parse_leading_len(Bin).
 
-% parse and verify the length of packet
--spec parse_leading_len(binary()) -> parse_result().
-parse_leading_len(<<16#01, Length:16/binary, Rest/binary>>) ->
-  #option{strict_mode = StrictMode} = emqtt_utils:get_option(),
-  %% Validate length if strict mode.
-  StrictMode andalso byte_size(Rest) + 3 == Length,
-  parse_payload_type(Rest);
-parse_leading_len(<<Length:8/binary, Rest/binary>>) ->
-  %% Validate length if strict mode.
-  #option{strict_mode = StrictMode} = emqtt_utils:get_option(),
-  StrictMode andalso byte_size(Rest) + 1 == Length,
-  parse_payload_type(Rest).
 
 % parse the message type to a header of packet
 -spec parse_payload_type(binary()) -> parse_result().
@@ -182,7 +170,7 @@ serialize_payload(#mqtt_packet_searchgw{radius = Radius}) ->
 serialize_payload(#mqtt_packet_gwinfo{source = Source,
                                       gateway_id = GateWayId,
                                       gateway_add = GateWayAdd}) ->
-  #option{strict_mode = StrictMode} = emqtt_utils:get_option(),
+  #config{strict_mode = StrictMode} = emqtt_utils:get_config(),
   StrictMode andalso Source == ?CLIENT,
   [<<GateWayId:8>>, GateWayAdd];
 serialize_payload(#mqtt_packet_connect{flag = Flag,
@@ -257,12 +245,12 @@ serialize_will_topic(#mqtt_packet_willtopic{empty_packet = false,
 % serialize topicName or topicId by Flag argument topicIdType
 -spec serialize_topic_name_or_id(#mqtt_packet_flag{}, bitstring(), topic_id()) ->
   iodata().
-serialize_topic_name_or_id(Flag = #mqtt_packet_flag{topic_id_type = ?PRE_DEF_TOPIC_ID},
+serialize_topic_name_or_id(Flag = #mqtt_packet_flag{topic_id_type = [?PRE_DEF_TOPIC_ID | ?TOPIC_ID]},
                            _TopicName,
                            TopicId) ->
   <<TopicId:2>>;
 serialize_topic_name_or_id(Flag =
-                           #mqtt_packet_flag{topic_id_type = [?SHORT_TOPIC_NAME | ?TOPIC_NAME]},
+                           #mqtt_packet_flag{topic_id_type = [?SHORT_TOPIC_NAME]},
                            TopicName,
                            _TopicId) ->
   <<TopicName>>.
