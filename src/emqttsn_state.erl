@@ -251,7 +251,7 @@ handle_event(cast, ?CONNACK_PACKET(ReturnCode), found,
              State = #state{config = Config})
   when ReturnCode == ?RC_ACCEPTED ->
   ?LOG_STATE(debug, "Gateway ensure connection is established", {}, State),
-  #config{keep_alive_interval = PingInterval} = Config,
+  #config{keep_alive = PingInterval} = Config,
   {next_state, connected, State#state{gw_failed_cycle = 0},
    {timeout, PingInterval, ping}};
 
@@ -764,7 +764,7 @@ handle_event(cast, {pub, Retain, TopicIdType, TopicIdOrName, Message}, connected
     ?QOS_2 -> {next_state, wait_pub_qos2,
                State#state{next_packet_id = next_packet_id(PacketId),
                            waiting_data = {pub, ?QOS_2, TopicIdType,
-                                           TopicIdOrName, Data}},
+                                           TopicIdOrName, Message}},
                {timeout, AckTimeout, {Retain, ?RESEND_TIME_BEG}}}
   end;
 

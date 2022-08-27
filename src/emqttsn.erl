@@ -27,7 +27,7 @@ start_link(Name, Option) ->
 
   Socket = emqttsn_udp:init_port(Port),
   StateM = emqttsn_state:start_link(Name, {Socket, Config}),
-  Receiver = spawn(emqttsn_udp, recv, [Socket, StateM]),
+  Receiver = spawn(emqttsn_udp, recv, [Socket, StateM, Config]),
   #client{state_m = StateM, receiver = Receiver}.
 
 

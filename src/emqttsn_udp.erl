@@ -17,9 +17,10 @@
 -module(emqttsn_udp).
 
 -include("logger.hrl").
+-include("config.hrl").
 -import(emqtt_utils, [store_socket/1, get_socket/0]).
 
--export([init_port/1, init_port/0, connect/3, send/2, send_anywhere/4, broadcast/3, recv/2]).
+-export([init_port/1, init_port/0, connect/3, send/2, send_anywhere/4, broadcast/3, recv/2, parse_leading_len/2]).
 
 %%------------------------------------------------------------------------------
 %% @doc Start ans store socket for given port
@@ -63,33 +64,28 @@ broadcast(Socket, Bin, RemotePort) ->
   end.
 
 % parse and verify the length of packet
--spec parse_leading_len(binary(), inet:socket()) -> pos_integer().
-parse_leading_len(<<16#01:8/binary>>, Socket) ->
-  {ok, Length} = gen_udp:recv(Socket, 2),
-  Length;
-parse_leading_len(<<Length:8/binary>>, _Socket) ->
-  Length.
 
-recv_length(Socket, Client) ->
+
+recv_length(Socket, Client, Config = #config{max_size = MaxSize}) ->
   case gen_udp:recv(Socket, 1) of
-    {ok, 8#1} ->
-      LeadingByte = gen_udp:recv(Socket, 2),
-      recv_body(Socket, Client, LeadingByte);
     {ok, LeadingByte} ->
-      recv_body(Socket, Client, LeadingByte);
+      Reader = fun(N) -> case gen_udp:recv(Socket, N) of
+                           {ok, Length} -> Length
+                         end end,
+      {Length, <<>>} = emqttsn_frame:parse_leading_len(LeadingByte, Reader),
+      recv_body(Socket, Client, Length);
     {error, Reason} ->
       ?LOG(warn, "failed to recv length", {reason = Reason}),
-      recv_length(Socket, Client)
+      recv_length(Socket, Client, Config)
   end.
 
 recv_body(Socket, Client, Length) ->
   case gen_udp:recv(Socket, Length) of
     {ok, RecvData} -> gen_statem:cast(Client, {recv, RecvData});
     {error, Reason} ->
-      ?LOG(warn, "failed to recv body", {reason = Reason}),
-      recv_length(Socket, Client)
+      ?LOG(warn, "failed to recv body", {reason = Reason})
   end.
 
-recv(Socket, Client) ->
-  recv_length(Socket, Client),
-  recv(Socket, Client).
+recv(Socket, Client, Config) ->
+  recv_length(Socket, Client, Config),
+  recv(Socket, Client, Config).
