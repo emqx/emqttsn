@@ -18,28 +18,33 @@
 
 -include("logger.hrl").
 -include("config.hrl").
--import(emqtt_utils, [store_socket/1, get_socket/0]).
 
--export([init_port/1, init_port/0, connect/3, send/2, send_anywhere/4, broadcast/3, recv/2, parse_leading_len/2]).
+-export([init_port/1, init_port/0, connect/3, send/2, send_anywhere/4, broadcast/3,
+         recv/3]).
 
 %%------------------------------------------------------------------------------
 %% @doc Start ans store socket for given port
 %% @end
 %%------------------------------------------------------------------------------
--spec init_port(inet:port_number()) -> inet:socket() | {error, Reason}.
+-spec init_port(inet:port_number()) -> {ok, inet:socket()} | {error, term()}.
 init_port(LocalPort) ->
   case gen_udp:open(LocalPort) of
     {ok, Socket} ->
-      Socket;
-    {error, Reason} ->
-      {error, Reason}
+      {ok, Socket};
+    {error, Reason} when LocalPort =:= 0 ->
+      ?LOG(error, "Open random port failed", #{reason => Reason}),
+      {error, Reason};
+    {error, _Reason} when LocalPort =/= 0 ->
+      ?EASY_LOG(warning, "Open 1884 failed, turn to random port"),
+      init_port()
   end.
 
--spec init_port() -> inet:socket() | {error, Reason}.
+-spec init_port() -> inet:socket() | {error, term()}.
 init_port() ->
   init_port(0).
 
--spec connect(inet:socket(), host(), inet:port_number()) -> inet:socket() | {error, Reason}.
+-spec connect(inet:socket(), host(), inet:port_number()) ->
+               inet:socket() | {error, term()}.
 connect(Socket, Address, Port) ->
   case gen_udp:connect(Socket, Address, Port) of
     ok ->
@@ -48,44 +53,45 @@ connect(Socket, Address, Port) ->
       {error, Reason}
   end.
 
+-spec send(inet:socket(), bitstring()) -> ok | {error, term()}.
 send(Socket, Bin) ->
   gen_udp:send(Socket, Bin).
 
+-spec send_anywhere(inet:socket(), bitstring(), host(), inet:port_number()) ->
+                     ok | {error, term()}.
 send_anywhere(Socket, Bin, Address, RemotePort) ->
   gen_udp:send(Socket, {Address, RemotePort}, Bin).
 
+-spec broadcast(inet:socket(), bitstring(), inet:port_number()) -> ok | {error, term()}.
 broadcast(Socket, Bin, RemotePort) ->
   case inet:peername(Socket) of
     {ok, {_Address, LocalPort}} ->
-      {ok, TmpSocket} = gen_udp:open(LocalPort, [broadcast: true]),
-      gen_udp:send(TmpSocket, '255.255.255.255', RemotePort, Bin),
-      gen_udp:close(TmpSocket);
-    {error, _Reason} -> _
+      {ok, TmpSocket} = gen_udp:open(LocalPort, [{broadcast, true}]),
+      case gen_udp:send(TmpSocket, '255.255.255.255', RemotePort, Bin) of
+        ok ->
+          gen_udp:close(TmpSocket),
+          ok;
+        {error, Reason} ->
+          {error, Reason}
+      end;
+    {error, Reason} ->
+      ?LOG(warning, "boardcast failed", #{reason => Reason}),
+      {error, Reason}
   end.
 
 % parse and verify the length of packet
 
-
-recv_length(Socket, Client, Config = #config{max_size = MaxSize}) ->
-  case gen_udp:recv(Socket, 1) of
-    {ok, LeadingByte} ->
-      Reader = fun(N) -> case gen_udp:recv(Socket, N) of
-                           {ok, Length} -> Length
-                         end end,
-      {Length, <<>>} = emqttsn_frame:parse_leading_len(LeadingByte, Reader),
-      recv_body(Socket, Client, Length);
+-spec recv_packet(inet:socket(), emqtsn:client(), config()) -> ok.
+recv_packet(Socket, Client, #config{max_size = MaxSize}) ->
+  case gen_udp:recv(Socket, MaxSize) of
+    {ok, RecvData} ->
+      gen_statem:cast(Client, {recv, RecvData});
     {error, Reason} ->
-      ?LOG(warn, "failed to recv length", {reason = Reason}),
-      recv_length(Socket, Client, Config)
+      ?LOG(warning, "failed to recv packet", #{reason => Reason}),
+      ok
   end.
 
-recv_body(Socket, Client, Length) ->
-  case gen_udp:recv(Socket, Length) of
-    {ok, RecvData} -> gen_statem:cast(Client, {recv, RecvData});
-    {error, Reason} ->
-      ?LOG(warn, "failed to recv body", {reason = Reason})
-  end.
-
+-spec recv(inet:socket(), emqtsn:client(), config()) -> no_return().
 recv(Socket, Client, Config) ->
-  recv_length(Socket, Client, Config),
+  recv_packet(Socket, Client, Config),
   recv(Socket, Client, Config).

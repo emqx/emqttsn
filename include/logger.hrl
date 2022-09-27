@@ -30,6 +30,6 @@
   end).
 
 -define(EASY_LOG(Level, Data),
-  ?LOG(Level, Data, {})).
+  ?LOG(Level, Data, #{})).
 
 -endif.

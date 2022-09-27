@@ -18,29 +18,14 @@
 -ifndef(EMQTT_HRL).
 
 -define(EMQTT_HRL, true).
-
-
 -define(DUP_TRUE, true).
 -define(DUP_FALSE, false).
 -define(RESEND_TIME_BEG, 0).
-%%--------------------------------------------------------------------
-%% MQTT-SN QoS Levels
-%%--------------------------------------------------------------------
 
+-type bin_1_byte() :: <<_:8>>.
+-type bin_2_byte() :: <<_:16>>.
 
-%% At most once
--define(QOS_0, 0).
-%% At least once
--define(QOS_1, 1).
-%% Exactly once
--define(QOS_2, 2).
-%% Simple publish for Qos Level -1
--define(QOS_neg, 3).
-
--type qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2.
-
--define(IS_QOS(I), I >= ?QOS_0 andalso I =< ?QOS_neg).
-
+-define(CLIENT_ID, <<1:8/integer>>).
 %%--------------------------------------------------------------------
 %% Maximum ClientId Length.
 %%--------------------------------------------------------------------
@@ -124,10 +109,10 @@
 %% Update will message acknowledgment
 -define(WILLMSGRESP, 29).
 -define(TYPE_NAMES,
-  ['ADVERTISE', 'SEARCHGW', 'GWINFO', 'CONNECT', 'CONNACK', 'WILLTOPICREQ', 'WILLTOPIC',
-   'WILLMSGREQ', 'WILLMSG', 'REGISTER', 'REGACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL',
-   'PUBCOMP', 'SUBSCRIBE', 'SUBACK', 'UNSUBSCRIBE', 'UNSUBACK', 'PINGREQ', 'PINGRESP',
-   'DISCONNECT', 'WILLTOPICUPD', 'WILLTOPICRESP', 'WILLMSGUPD', 'WILLMSGRESP']).
+        ['ADVERTISE', 'SEARCHGW', 'GWINFO', 'CONNECT', 'CONNACK', 'WILLTOPICREQ', 'WILLTOPIC',
+         'WILLMSGREQ', 'WILLMSG', 'REGISTER', 'REGACK', 'PUBLISH', 'PUBACK', 'PUBREC', 'PUBREL',
+         'PUBCOMP', 'SUBSCRIBE', 'SUBACK', 'UNSUBSCRIBE', 'UNSUBACK', 'PINGREQ', 'PINGRESP',
+         'DISCONNECT', 'WILLTOPICUPD', 'WILLTOPICRESP', 'WILLMSGUPD', 'WILLMSGRESP']).
 
 %%--------------------------------------------------------------------
 %% MQTT-SN V1.2 Reason Codes
@@ -138,8 +123,7 @@
 -define(RC_INVALID_ID, 2).
 -define(RC_UNSUPPORTED, 3).
 
--type rc_code() :: RC_ACCEPTED | RC_CONGESTION | RC_INVALID_ID | RC_UNSUPPORTED.
-
+-type return_code() :: ?RC_ACCEPTED | ?RC_CONGESTION | ?RC_INVALID_ID | ?RC_UNSUPPORTED.
 
 %%--------------------------------------------------------------------
 %% MQTT-SN Frame Mask
@@ -154,23 +138,23 @@
 
 -define(TOPIC_ID, 2#00).
 -define(PRE_DEF_TOPIC_ID, 2#01).
--define(SHORT_TOPIC_NAME, 2#01).
+-define(SHORT_TOPIC_NAME, 2#10).
 
 -type topic_id_type() :: 2#00..2#11.
--type topic_id_or_name() :: bitstring() | string().
+-type topic_id_or_name() :: topic_id() | string().
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Fixed Header
 %%--------------------------------------------------------------------
 
--record(mqtt_packet_header, {type :: msg_type()}).
+-record(mqttsn_packet_header, {type :: msg_type()}).
 
 %%--------------------------------------------------------------------
 %% MQTT Packets
 %%--------------------------------------------------------------------
 
 %% Default address
--define(DEFAULT_ADDRESS, <<"127.0.0.1">>).
+-define(DEFAULT_ADDRESS, "127.0.0.1").
 
 %% Retain Handling
 % -define(DEFAULT_SUBOPTS, #{
@@ -184,326 +168,334 @@
 % }).
 
 %% MQTT-SN flag variable
--type packet_id() :: 0..16#FFFF.
--type topic_id() :: 0..16#FFFF.
 
--record(mqtt_packet_flag,
-{dup = false :: boolean(),
- qos = ?QOS_0 :: qos(),
- retain = false :: boolean(),
- will = false :: boolean(),
- clean_session = false :: boolean(),
- topic_id_type :: topic_id_type()}).
+-record(mqttsn_packet_flag,
+        {dup = false :: boolean(),
+         qos = ?QOS_0 :: qos(),
+         retain = false :: boolean(),
+         will = false :: boolean(),
+         clean_session = false :: boolean(),
+         topic_id_type = ?TOPIC_ID :: topic_id_type()}).
 
--type flag() :: #mqtt_packet_flag{}.
+-type flag() :: #mqttsn_packet_flag{}.
 
 %% MQTT-SN packets types
--record(mqtt_packet_advertise, {gateway_id :: bitstring(), duration :: integer()}).
--record(mqtt_packet_searchgw, {radius :: integer()}).
--record(mqtt_packet_gwinfo,
-{source :: msg_src(),
- gateway_id :: bitstring(),
- gateway_add = ?DEFAULT_ADDRESS :: inet:ip_address()}).
--record(mqtt_packet_connect,
-{proto_name = proplists:get_value(?MQTTSN_PROTO_V1_2, ?PROTOCOL_NAMES) :: bitstring(),
- proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
- flag :: flag(),
- duration :: integer(),
- client_id :: bitstring()}).
--record(mqtt_packet_connack, {return_code :: rc_code()}).
--record(mqtt_packet_willtopicreq, {}).
--record(mqtt_packet_willtopic,
-{empty_packet :: boolean(),
- flag :: flag(),
- will_topic = <<>> :: bitstring()}).
--record(mqtt_packet_willmsgreq, {}).
--record(mqtt_packet_willmsg, {will_msg :: bitstring()}).
--record(mqtt_packet_register,
-{source :: msg_src(),
- topic_id :: topic_id(),
- packet_id :: packet_id(),
- topic_name :: bitstring()}).
--record(mqtt_packet_regack,
-{topic_id :: topic_id(), packet_id :: packet_id(), return_code :: rc_code()}).
--record(mqtt_packet_publish,
-{flag :: #mqtt_packet_flag{},
- topic_id :: topic_id(),
- packet_id :: packet_id(),
- data :: bitstring()}).
--record(mqtt_packet_puback,
-{topic_id :: topic_id(), packet_id :: packet_id(), return_code :: rc_code()}).
--record(mqtt_packet_pubrec, {packet_id :: packet_id()}).
--record(mqtt_packet_pubrel, {packet_id :: packet_id()}).
--record(mqtt_packet_pubcomp, {packet_id :: packet_id()}).
--record(mqtt_packet_subscribe,
-{flag :: flag(),
- packet_id :: packet_id(),
- topic_name = <<>> :: bitstring(),
- topic_id = 0 :: topic_id()}).
--record(mqtt_packet_suback,
-{flag :: flag(),
- topic_id :: topic_id(),
- packet_id :: packet_id(),
- return_code :: rc_code()}).
--record(mqtt_packet_unsubscribe,
-{flag :: flag(),
- packet_id :: packet_id(),
- topic_name = <<>> :: bitstring(),
- topic_id = 0 :: topic_id()}).
--record(mqtt_packet_unsuback, {packet_id :: packet_id()}).
--record(mqtt_packet_pingreq, {empty_packet :: boolean(), client_id :: bitstring()}).
--record(mqtt_packet_pingresp, {}).
--record(mqtt_packet_disconnect, {empty_packet :: boolean(), duration = 0 :: integer()}).
--record(mqtt_packet_willtopicupd,
-{empty_packet :: boolean(),
- flag :: flag(),
- will_topic = <<>> :: bitstring()}).
--record(mqtt_packet_willmsgupd, {will_msg :: bitstring()}).
--record(mqtt_packet_willtopicresp, {return_code :: rc_code()}).
--record(mqtt_packet_willmsgresp, {return_code :: rc_code()}).
+-record(mqttsn_packet_advertise, {gateway_id :: bin_1_byte(), duration :: non_neg_integer()}).
+-record(mqttsn_packet_searchgw, {radius :: non_neg_integer()}).
+-record(mqttsn_packet_gwinfo,
+        {source :: msg_src(),
+         gateway_id :: bin_1_byte(),
+         gateway_add = ?DEFAULT_ADDRESS :: host()}).
+-record(mqttsn_packet_connect,
+        {proto_name = proplists:get_value(?MQTTSN_PROTO_V1_2, ?PROTOCOL_NAMES) :: bitstring(),
+         proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
+         flag :: flag(),
+         duration :: non_neg_integer(),
+         client_id :: bin_1_byte()}).
+-record(mqttsn_packet_connack, {return_code :: return_code()}).
+-record(mqttsn_packet_willtopicreq, {}).
+-record(mqttsn_packet_willtopic,
+        {empty_packet :: boolean(), flag :: flag(), will_topic = "" :: string()}).
+-record(mqttsn_packet_willmsgreq, {}).
+-record(mqttsn_packet_willmsg, {will_msg :: string()}).
+-record(mqttsn_packet_register,
+        {source :: msg_src(),
+         topic_id :: topic_id(),
+         packet_id :: packet_id(),
+         topic_name :: string()}).
+-record(mqttsn_packet_regack,
+        {topic_id :: topic_id(), packet_id :: packet_id(), return_code :: return_code()}).
+-record(mqttsn_packet_publish,
+        {flag :: #mqttsn_packet_flag{},
+         topic_id :: topic_id(),
+         packet_id :: packet_id(),
+         message :: string()}).
+-record(mqttsn_packet_puback,
+        {topic_id :: topic_id(), packet_id :: packet_id(), return_code :: return_code()}).
+-record(mqttsn_packet_pubrec, {packet_id :: packet_id()}).
+-record(mqttsn_packet_pubrel, {packet_id :: packet_id()}).
+-record(mqttsn_packet_pubcomp, {packet_id :: packet_id()}).
+-record(mqttsn_packet_subscribe,
+        {flag :: flag(),
+         packet_id :: packet_id(),
+         topic_name = "" :: string(),
+         topic_id = 0 :: topic_id()}).
+-record(mqttsn_packet_suback,
+        {flag :: flag(),
+         topic_id :: topic_id(),
+         packet_id :: packet_id(),
+         return_code :: return_code()}).
+-record(mqttsn_packet_unsubscribe,
+        {flag :: flag(),
+         packet_id :: packet_id(),
+         topic_name = "" :: string(),
+         topic_id = 0 :: topic_id()}).
+-record(mqttsn_packet_unsuback, {packet_id :: packet_id()}).
+-record(mqttsn_packet_pingreq, {empty_packet :: boolean(), client_id = ?CLIENT_ID :: bin_1_byte()}).
+-record(mqttsn_packet_pingresp, {}).
+-record(mqttsn_packet_disconnect, {empty_packet :: boolean(), duration = 0 :: non_neg_integer()}).
+-record(mqttsn_packet_willtopicupd,
+        {empty_packet :: boolean(), flag :: flag(), will_topic = "" :: string()}).
+-record(mqttsn_packet_willmsgupd, {will_msg = "" :: string()}).
+-record(mqttsn_packet_willtopicresp, {return_code :: return_code()}).
+-record(mqttsn_packet_willmsgresp, {return_code :: return_code()}).
 
 %%--------------------------------------------------------------------
 %% MQTT Control Packet
 %%--------------------------------------------------------------------
 
 -type packet_payload() ::
-#mqtt_packet_advertise{} |
-#mqtt_packet_searchgw{} |
-#mqtt_packet_gwinfo{} |
-#mqtt_packet_connect{} |
-#mqtt_packet_connack{} |
-#mqtt_packet_willtopicreq{} |
-#mqtt_packet_willtopic{} |
-#mqtt_packet_willmsgreq{} |
-#mqtt_packet_willmsg{} |
-#mqtt_packet_register{} |
-#mqtt_packet_regack{} |
-#mqtt_packet_publish{} |
-#mqtt_packet_puback{} |
-#mqtt_packet_subscribe{} |
-#mqtt_packet_suback{} |
-#mqtt_packet_unsubscribe{} |
-#mqtt_packet_unsuback{} |
-#mqtt_packet_pingreq{} |
-#mqtt_packet_pingresp{} |
-#mqtt_packet_disconnect{} |
-#mqtt_packet_willtopicupd{} |
-#mqtt_packet_willmsgupd{} |
-#mqtt_packet_willtopicresp{} |
-#mqtt_packet_willmsgresp{}.
+        #mqttsn_packet_advertise{} |
+        #mqttsn_packet_searchgw{} |
+        #mqttsn_packet_gwinfo{} |
+        #mqttsn_packet_connect{} |
+        #mqttsn_packet_connack{} |
+        #mqttsn_packet_willtopicreq{} |
+        #mqttsn_packet_willtopic{} |
+        #mqttsn_packet_willmsgreq{} |
+        #mqttsn_packet_willmsg{} |
+        #mqttsn_packet_register{} |
+        #mqttsn_packet_regack{} |
+        #mqttsn_packet_publish{} |
+        #mqttsn_packet_puback{} |
+        #mqttsn_packet_pubrec{} |
+        #mqttsn_packet_pubrel{} |
+        #mqttsn_packet_pubcomp{} |
+        #mqttsn_packet_subscribe{} |
+        #mqttsn_packet_suback{} |
+        #mqttsn_packet_unsubscribe{} |
+        #mqttsn_packet_unsuback{} |
+        #mqttsn_packet_pingreq{} |
+        #mqttsn_packet_pingresp{} |
+        #mqttsn_packet_disconnect{} |
+        #mqttsn_packet_willtopicupd{} |
+        #mqttsn_packet_willmsgupd{} |
+        #mqttsn_packet_willtopicresp{} |
+        #mqttsn_packet_willmsgresp{}.
 
--record(mqtt_packet, {header :: #mqtt_packet_header{}, payload :: packet_payload()}).
+-record(mqttsn_packet, {header :: #mqttsn_packet_header{}, payload :: packet_payload()}).
+
+-type mqttsn_packet() :: #mqttsn_packet{}.
 
 %%--------------------------------------------------------------------
 %% MQTT Packet Match
 %%--------------------------------------------------------------------
 
 -define(ADVERTISE_PACKET(GateWayId, Duration),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?ADVERTISE},
-               payload =
-               #mqtt_packet_advertise{gateway_id = GateWayId, duration = Duration}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?ADVERTISE},
+                       payload =
+                               #mqttsn_packet_advertise{gateway_id = GateWayId,
+                                                        duration = Duration}}).
 -define(SEARCHGW_PACKET(Radius),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?SEARCHGW},
-               payload = #mqtt_packet_searchgw{radius = Radius}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SEARCHGW},
+                       payload = #mqttsn_packet_searchgw{radius = Radius}}).
 -define(GWINFO_PACKET(GateWayId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT},
-               payload =
-               #mqtt_packet_gwinfo{source = ?SERVER,
-                                   gateway_id = GateWayId,
-                                   gateway_add = <<>>}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?GWINFO},
+                       payload =
+                               #mqttsn_packet_gwinfo{source = ?SERVER,
+                                                     gateway_id = GateWayId,
+                                                     gateway_add = {0, 0, 0, 0}}}).
 -define(GWINFO_PACKET(GateWayId, GateWayAdd),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT},
-               payload =
-               #mqtt_packet_gwinfo{source = ?CLIENT,
-                                   gateway_id = GateWayId,
-                                   gateway_add = GateWayAdd}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?GWINFO},
+                       payload =
+                               #mqttsn_packet_gwinfo{source = ?CLIENT,
+                                                     gateway_id = GateWayId,
+                                                     gateway_add = GateWayAdd}}).
 -define(CONNECT_PACKET(Will, CleanSession, Duration, ClientId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?CONNECT},
-               payload = #mqtt_packet_connect{flag =
-                                              #mqtt_packet_flag{will = Will,
-                                                                clean_session =
-                                                                CleanSession},
-                                              duration = Duration,
-                                              client_id = ClientId}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?CONNECT},
+                       payload =
+                               #mqttsn_packet_connect{flag =
+                                                              #mqttsn_packet_flag{will = Will,
+                                                                                  clean_session =
+                                                                                          CleanSession},
+                                                      duration = Duration,
+                                                      client_id = ClientId}}).
 -define(CONNACK_PACKET(ReturnCode),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK},
-               payload = #mqtt_packet_connack{return_code = ReturnCode}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?CONNACK},
+                       payload = #mqttsn_packet_connack{return_code = ReturnCode}}).
 -define(WILLTOPICREQ_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLTOPICREQ},
-               payload = #mqtt_packet_willtopicreq{}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLTOPICREQ},
+                       payload = #mqttsn_packet_willtopicreq{}}).
 -define(WILLTOPIC_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLTOPIC},
-               payload = #mqtt_packet_willtopic{empty_packet = true}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLTOPIC},
+                       payload = #mqttsn_packet_willtopic{empty_packet = true}}).
 -define(WILLTOPIC_PACKET(Qos, Retain, WillTopic),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLTOPIC},
-               payload =
-               #mqtt_packet_willtopic{empty_packet = false,
-                                      flag =
-                                      #mqtt_packet_flag{qos = Qos,
-                                                        retain = Retain},
-                                      will_topic = WillTopic}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLTOPIC},
+                       payload =
+                               #mqttsn_packet_willtopic{empty_packet = false,
+                                                        flag =
+                                                                #mqttsn_packet_flag{qos = Qos,
+                                                                                    retain =
+                                                                                            Retain},
+                                                        will_topic = WillTopic}}).
 -define(WILLMSGREQ_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLMSGREQ},
-               payload = #mqtt_packet_willmsgreq{}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLMSGREQ},
+                       payload = #mqttsn_packet_willmsgreq{}}).
 -define(WILLMSG_PACKET(WillMsg),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLMSG},
-               payload = #mqtt_packet_willmsg{will_msg = WillMsg}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLMSG},
+                       payload = #mqttsn_packet_willmsg{will_msg = WillMsg}}).
 -define(REGISTER_PACKET(PacketId, TopicName),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?REGISTER},
-               payload =
-               #mqtt_packet_register{source = ?CLIENT,
-                                     topic_id = 0,
-                                     packet_id = PacketId,
-                                     topic_name = TopicName}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?REGISTER},
+                       payload =
+                               #mqttsn_packet_register{source = ?CLIENT,
+                                                       topic_id = 0,
+                                                       packet_id = PacketId,
+                                                       topic_name = TopicName}}).
 -define(REGISTER_PACKET(TopicId, PacketId, TopicName),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?REGISTER},
-               payload =
-               #mqtt_packet_register{source = ?SERVER,
-                                     topic_id = TopicId,
-                                     packet_id = PacketId,
-                                     topic_name = TopicName}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?REGISTER},
+                       payload =
+                               #mqttsn_packet_register{source = ?SERVER,
+                                                       topic_id = TopicId,
+                                                       packet_id = PacketId,
+                                                       topic_name = TopicName}}).
 -define(REGACK_PACKET(TopicId, PacketId, ReturnCode),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?REGACK},
-               payload =
-               #mqtt_packet_regack{topic_id = TopicId,
-                                   packet_id = PacketId,
-                                   return_code = ReturnCode}}).
--define(PUBLISH_PACKET(TopicIdType, TopicIdOrName, Data),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH},
-               payload =
-               #mqtt_packet_publish{flag =
-                                    #mqtt_packet_flag{qos = ?QOS_neg,
-                                                      topic_id_type =
-                                                      TopicIdType},
-                                    topic_id = TopicIdOrName,
-                                    packet_id = 0,
-                                    data = Data}}).
--define(PUBLISH_PACKET(Dup, Retain, TopicIdType, TopicIdOrName, Data),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH},
-               payload =
-               #mqtt_packet_publish{flag =
-                                    #mqtt_packet_flag{dup = Dup,
-                                                      qos = ?QOS_0,
-                                                      retain = Retain,
-                                                      topic_id_type =
-                                                      TopicIdType},
-                                    topic_id = TopicIdOrName,
-                                    packet_id = 0,
-                                    data = Data}}).
--define(PUBLISH_PACKET(Dup, Qos, Retain, TopicIdType, TopicId, PacketId, Data),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH},
-               payload =
-               #mqtt_packet_publish{flag =
-                                    #mqtt_packet_flag{dup = Dup,
-                                                      qos = Qos,
-                                                      retain = Retain,
-                                                      topic_id_type =
-                                                      TopicIdType},
-                                    topic_id = TopicId,
-                                    packet_id = PacketId,
-                                    data = Data}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?REGACK},
+                       payload =
+                               #mqttsn_packet_regack{topic_id = TopicId,
+                                                     packet_id = PacketId,
+                                                     return_code = ReturnCode}}).
+-define(PUBLISH_PACKET(TopicIdType, TopicIdOrName, Message),
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBLISH},
+                       payload =
+                               #mqttsn_packet_publish{flag =
+                                                              #mqttsn_packet_flag{qos = ?QOS_neg,
+                                                                                  topic_id_type =
+                                                                                          TopicIdType},
+                                                      topic_id = TopicIdOrName,
+                                                      packet_id = 0,
+                                                      message = Message}}).
+-define(PUBLISH_PACKET(Dup, Retain, TopicIdType, TopicIdOrName, Message),
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBLISH},
+                       payload =
+                               #mqttsn_packet_publish{flag =
+                                                              #mqttsn_packet_flag{dup = Dup,
+                                                                                  qos = ?QOS_0,
+                                                                                  retain = Retain,
+                                                                                  topic_id_type =
+                                                                                          TopicIdType},
+                                                      topic_id = TopicIdOrName,
+                                                      packet_id = 0,
+                                                      message = Message}}).
+-define(PUBLISH_PACKET(Dup, Qos, Retain, TopicIdType, TopicIdOrName, PacketId, Message),
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBLISH},
+                       payload =
+                               #mqttsn_packet_publish{flag =
+                                                              #mqttsn_packet_flag{dup = Dup,
+                                                                                  qos = Qos,
+                                                                                  retain = Retain,
+                                                                                  topic_id_type =
+                                                                                          TopicIdType},
+                                                      topic_id = TopicIdOrName,
+                                                      packet_id = PacketId,
+                                                      message = Message}}).
 -define(PUBACK_PACKET(TopicId, PacketId, ReturnCode),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBACK},
-               payload =
-               #mqtt_packet_puback{topic_id = TopicId,
-                                   packet_id = PacketId,
-                                   return_code = ReturnCode}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBACK},
+                       payload =
+                               #mqttsn_packet_puback{topic_id = TopicId,
+                                                     packet_id = PacketId,
+                                                     return_code = ReturnCode}}).
 -define(PUBREC_PACKET(PacketId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBREC},
-               payload = #mqtt_packet_pubrec{packet_id = PacketId}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBREC},
+                       payload = #mqttsn_packet_pubrec{packet_id = PacketId}}).
 -define(PUBREL_PACKET(PacketId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBREL},
-               payload = #mqtt_packet_pubrel{packet_id = PacketId}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBREL},
+                       payload = #mqttsn_packet_pubrel{packet_id = PacketId}}).
 -define(PUBCOMP_PACKET(PacketId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PUBCOMP},
-               payload = #mqtt_packet_pubcomp{packet_id = PacketId}}).
-
--define(SUBSCRIBE_PACKET(PacketId, TopicId, MaxQos),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
-               payload =
-               #mqtt_packet_subscribe{flag =
-                                      #mqtt_packet_flag{dup = Dup,
-                                                        qos = MaxQos,
-                                                        topic_id_type =
-                                                        ?PRE_DEF_TOPIC_ID},
-                                      packet_id = PacketId,
-                                      topic_id = TopicId}}).
--define(SUBSCRIBE_PACKET(TopicIdTypeNotId, PacketId, TopicName, MaxQos),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
-               payload =
-               #mqtt_packet_subscribe{flag =
-                                      #mqtt_packet_flag{dup = Dup,
-                                                        qos = MaxQos,
-                                                        topic_id_type =
-                                                        TopicIdTypeNotId},
-                                      packet_id = PacketId,
-                                      topic_name = TopicName}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBCOMP},
+                       payload = #mqttsn_packet_pubcomp{packet_id = PacketId}}).
+-define(SUBSCRIBE_PACKET(Dup, PacketId, TopicName, MaxQos),
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
+                       payload =
+                               #mqttsn_packet_subscribe{flag =
+                                                                #mqttsn_packet_flag{dup = Dup,
+                                                                                    qos = MaxQos,
+                                                                                    topic_id_type =
+                                                                                            ?SHORT_TOPIC_NAME},
+                                                        packet_id = PacketId,
+                                                        topic_name = TopicName}}).
+-define(SUBSCRIBE_PACKET(Dup, TopicIdTypeNotName, PacketId, TopicId, MaxQos),
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
+                       payload =
+                               #mqttsn_packet_subscribe{flag =
+                                                                #mqttsn_packet_flag{dup = Dup,
+                                                                                    qos = MaxQos,
+                                                                                    topic_id_type =
+                                                                                            TopicIdTypeNotName},
+                                                        packet_id = PacketId,
+                                                        topic_id = TopicId}}).
 -define(SUBACK_PACKET(Qos, TopicId, PacketId, ReturnCode),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?SUBACK},
-               payload =
-               #mqtt_packet_suback{flag = #mqtt_packet_flag{qos = Qos},
-                                   packet_id = PacketId,
-                                   return_code = ReturnCode}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBACK},
+                       payload =
+                               #mqttsn_packet_suback{flag = #mqttsn_packet_flag{qos = Qos},
+                                                     topic_id = TopicId,
+                                                     packet_id = PacketId,
+                                                     return_code = ReturnCode}}).
 -define(UNSUBSCRIBE_PACKET(PacketId, TopicId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
-               payload =
-               #mqtt_packet_unsubscribe{flag =
-                                        #mqtt_packet_flag{topic_id_type =
-                                                          ?PRE_DEF_TOPIC_ID},
-                                        packet_id = PacketId,
-                                        topic_id = TopicId}}).
--define(UNSUBSCRIBE_PACKET(TopicIdTypeNotId, PacketId, TopicName),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?SUBSCRIBE},
-               payload =
-               #mqtt_packet_unsubscribe{flag =
-                                        #mqtt_packet_flag{topic_id_type =
-                                                          TopicIdTypeNotId},
-                                        packet_id = PacketId,
-                                        topic_name = TopicName}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
+                       payload =
+                               #mqttsn_packet_unsubscribe{flag =
+                                                                  #mqttsn_packet_flag{topic_id_type
+                                                                                              =
+                                                                                              ?SHORT_TOPIC_NAME},
+                                                          packet_id = PacketId,
+                                                          topic_id = TopicId}}).
+-define(UNSUBSCRIBE_PACKET(TopicIdTypeNotName, PacketId, TopicId),
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
+                       payload =
+                               #mqttsn_packet_unsubscribe{flag =
+                                                                  #mqttsn_packet_flag{topic_id_type
+                                                                                              =
+                                                                                              TopicIdTypeNotName},
+                                                          packet_id = PacketId,
+                                                          topic_id = TopicId}}).
 -define(UNSUBACK_PACKET(PacketId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?UNSUBACK},
-               payload = #mqtt_packet_unsuback{packet_id = PacketId}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?UNSUBACK},
+                       payload = #mqttsn_packet_unsuback{packet_id = PacketId}}).
 -define(PINGREQ_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PINGREQ},
-               payload = #mqtt_packet_pingreq{empty_packet = True}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PINGREQ},
+                       payload = #mqttsn_packet_pingreq{empty_packet = true}}).
 -define(PINGREQ_PACKET(ClientId),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PINGREQ},
-               payload = #mqtt_packet_pingreq{empty_packet = False, client_id = ClientId}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PINGREQ},
+                       payload =
+                               #mqttsn_packet_pingreq{empty_packet = false, client_id = ClientId}}).
 -define(PINGRESP_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?PINGRESP},
-               payload = #mqtt_packet_pingresp{}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?PINGRESP},
+                       payload = #mqttsn_packet_pingresp{}}).
 -define(DISCONNECT_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?DISCONNECT},
-               payload = #mqtt_packet_disconnect{empty_packet = true}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?DISCONNECT},
+                       payload = #mqttsn_packet_disconnect{empty_packet = true}}).
 -define(DISCONNECT_PACKET(Duration),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?DISCONNECT},
-               payload = #mqtt_packet_disconnect{empty_packet = false, duration = Duration}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?DISCONNECT},
+                       payload =
+                               #mqttsn_packet_disconnect{empty_packet = false,
+                                                         duration = Duration}}).
 -define(WILLTOPICUPD_PACKET(),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLTOPICUPD},
-               payload = #mqtt_packet_willtopicupd{empty_packet = true}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLTOPICUPD},
+                       payload = #mqttsn_packet_willtopicupd{empty_packet = true}}).
 -define(WILLTOPICUPD_PACKET(Qos, Retain, WillTopic),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLTOPICUPD},
-               payload =
-               #mqtt_packet_willtopicupd{empty_packet = false,
-                                         flag =
-                                         #mqtt_packet_flag{qos = Qos,
-                                                           retain = Retain},
-                                         will_topic = WillTopic}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLTOPICUPD},
+                       payload =
+                               #mqttsn_packet_willtopicupd{empty_packet = false,
+                                                           flag =
+                                                                   #mqttsn_packet_flag{qos = Qos,
+                                                                                       retain =
+                                                                                               Retain},
+                                                           will_topic = WillTopic}}).
 -define(WILLMSGUPD_PACKET(WillMsg),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLMSGUPD},
-               payload = #mqtt_packet_willmsgupd{will_msg = WillMsg}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLMSGUPD},
+                       payload = #mqttsn_packet_willmsgupd{will_msg = WillMsg}}).
 -define(WILLTOPICRESP_PACKET(ReturnCode),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLTOPICRESP},
-               payload = #mqtt_packet_willtopicresp{return_code = ReturnCode}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLTOPICRESP},
+                       payload = #mqttsn_packet_willtopicresp{return_code = ReturnCode}}).
 -define(WILLMSGRESP_PACKET(ReturnCode),
-  #mqtt_packet{header = #mqtt_packet_header{type = ?WILLMSGRESP},
-               payload = #mqtt_packet_willmsgresp{return_code = ReturnCode}}).
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLMSGRESP},
+                       payload = #mqttsn_packet_willmsgresp{return_code = ReturnCode}}).
 -define(catch_error(Error, Exp),
-  try
-    Exp
-  catch
-    error:Error ->
-      ok
-  end).
+        try
+                Exp
+        catch
+                error:Error ->
+                        ok
+        end).
 
 -endif.
