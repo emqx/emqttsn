@@ -25,10 +25,10 @@
 -type bin_1_byte() :: <<_:8>>.
 -type bin_2_byte() :: <<_:16>>.
 
--define(CLIENT_ID, <<1:8/integer>>).
-%%--------------------------------------------------------------------
-%% Maximum ClientId Length.
-%%--------------------------------------------------------------------
+-define(CLIENT_ID,
+        <<1:8/integer>>).%%--------------------------------------------------------------------
+                         %% Maximum ClientId Length.
+                         %%--------------------------------------------------------------------
 
 %% TODO: 1-23 strings? is still 65535?
 
@@ -154,7 +154,7 @@
 %%--------------------------------------------------------------------
 
 %% Default address
--define(DEFAULT_ADDRESS, "127.0.0.1").
+-define(DEFAULT_ADDRESS, {127, 0, 0, 1}).
 
 %% Retain Handling
 % -define(DEFAULT_SUBOPTS, #{
@@ -180,18 +180,16 @@
 -type flag() :: #mqttsn_packet_flag{}.
 
 %% MQTT-SN packets types
--record(mqttsn_packet_advertise, {gateway_id :: bin_1_byte(), duration :: non_neg_integer()}).
+-record(mqttsn_packet_advertise, {gateway_id :: gw_id(), duration :: non_neg_integer()}).
 -record(mqttsn_packet_searchgw, {radius :: non_neg_integer()}).
 -record(mqttsn_packet_gwinfo,
-        {source :: msg_src(),
-         gateway_id :: bin_1_byte(),
-         gateway_add = ?DEFAULT_ADDRESS :: host()}).
+        {source :: msg_src(), gateway_id :: gw_id(), gateway_add = ?DEFAULT_ADDRESS :: host()}).
 -record(mqttsn_packet_connect,
-        {proto_name = proplists:get_value(?MQTTSN_PROTO_V1_2, ?PROTOCOL_NAMES) :: bitstring(),
+        {proto_name = ?MQTTSN_PROTO_V1_2_NAME :: bitstring(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
          flag :: flag(),
          duration :: non_neg_integer(),
-         client_id :: bin_1_byte()}).
+         client_id :: string()}).
 -record(mqttsn_packet_connack, {return_code :: return_code()}).
 -record(mqttsn_packet_willtopicreq, {}).
 -record(mqttsn_packet_willtopic,
@@ -231,9 +229,10 @@
          topic_name = "" :: string(),
          topic_id = 0 :: topic_id()}).
 -record(mqttsn_packet_unsuback, {packet_id :: packet_id()}).
--record(mqttsn_packet_pingreq, {empty_packet :: boolean(), client_id = ?CLIENT_ID :: bin_1_byte()}).
+-record(mqttsn_packet_pingreq, {empty_packet :: boolean(), client_id :: string()}).
 -record(mqttsn_packet_pingresp, {}).
--record(mqttsn_packet_disconnect, {empty_packet :: boolean(), duration = 0 :: non_neg_integer()}).
+-record(mqttsn_packet_disconnect,
+        {empty_packet :: boolean(), duration = 0 :: non_neg_integer()}).
 -record(mqttsn_packet_willtopicupd,
         {empty_packet :: boolean(), flag :: flag(), will_topic = "" :: string()}).
 -record(mqttsn_packet_willmsgupd, {will_msg = "" :: string()}).
@@ -245,32 +244,15 @@
 %%--------------------------------------------------------------------
 
 -type packet_payload() ::
-        #mqttsn_packet_advertise{} |
-        #mqttsn_packet_searchgw{} |
-        #mqttsn_packet_gwinfo{} |
-        #mqttsn_packet_connect{} |
-        #mqttsn_packet_connack{} |
-        #mqttsn_packet_willtopicreq{} |
-        #mqttsn_packet_willtopic{} |
-        #mqttsn_packet_willmsgreq{} |
-        #mqttsn_packet_willmsg{} |
-        #mqttsn_packet_register{} |
-        #mqttsn_packet_regack{} |
-        #mqttsn_packet_publish{} |
-        #mqttsn_packet_puback{} |
-        #mqttsn_packet_pubrec{} |
-        #mqttsn_packet_pubrel{} |
-        #mqttsn_packet_pubcomp{} |
-        #mqttsn_packet_subscribe{} |
-        #mqttsn_packet_suback{} |
-        #mqttsn_packet_unsubscribe{} |
-        #mqttsn_packet_unsuback{} |
-        #mqttsn_packet_pingreq{} |
-        #mqttsn_packet_pingresp{} |
-        #mqttsn_packet_disconnect{} |
-        #mqttsn_packet_willtopicupd{} |
-        #mqttsn_packet_willmsgupd{} |
-        #mqttsn_packet_willtopicresp{} |
+        #mqttsn_packet_advertise{} | #mqttsn_packet_searchgw{} | #mqttsn_packet_gwinfo{} |
+        #mqttsn_packet_connect{} | #mqttsn_packet_connack{} | #mqttsn_packet_willtopicreq{} |
+        #mqttsn_packet_willtopic{} | #mqttsn_packet_willmsgreq{} | #mqttsn_packet_willmsg{} |
+        #mqttsn_packet_register{} | #mqttsn_packet_regack{} | #mqttsn_packet_publish{} |
+        #mqttsn_packet_puback{} | #mqttsn_packet_pubrec{} | #mqttsn_packet_pubrel{} |
+        #mqttsn_packet_pubcomp{} | #mqttsn_packet_subscribe{} | #mqttsn_packet_suback{} |
+        #mqttsn_packet_unsubscribe{} | #mqttsn_packet_unsuback{} | #mqttsn_packet_pingreq{} |
+        #mqttsn_packet_pingresp{} | #mqttsn_packet_disconnect{} | #mqttsn_packet_willtopicupd{} |
+        #mqttsn_packet_willmsgupd{} | #mqttsn_packet_willtopicresp{} |
         #mqttsn_packet_willmsgresp{}.
 
 -record(mqttsn_packet, {header :: #mqttsn_packet_header{}, payload :: packet_payload()}).
@@ -430,7 +412,7 @@
                                                      topic_id = TopicId,
                                                      packet_id = PacketId,
                                                      return_code = ReturnCode}}).
--define(UNSUBSCRIBE_PACKET(PacketId, TopicId),
+-define(UNSUBSCRIBE_PACKET(PacketId, TopicName),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
                        payload =
                                #mqttsn_packet_unsubscribe{flag =
@@ -438,7 +420,7 @@
                                                                                               =
                                                                                               ?SHORT_TOPIC_NAME},
                                                           packet_id = PacketId,
-                                                          topic_id = TopicId}}).
+                                                          topic_name = TopicName}}).
 -define(UNSUBSCRIBE_PACKET(TopicIdTypeNotName, PacketId, TopicId),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
                        payload =
@@ -490,12 +472,5 @@
 -define(WILLMSGRESP_PACKET(ReturnCode),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLMSGRESP},
                        payload = #mqttsn_packet_willmsgresp{return_code = ReturnCode}}).
--define(catch_error(Error, Exp),
-        try
-                Exp
-        catch
-                error:Error ->
-                        ok
-        end).
 
 -endif.

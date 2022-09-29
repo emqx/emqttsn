@@ -5,9 +5,11 @@
 %%--------------------------------------------------------------------
 
 -define(MQTTSN_PROTO_V1_2, 2).
--define(PROTOCOL_NAMES, [{?MQTTSN_PROTO_V1_2, <<"MQTT-SN">>}]).
+-define(MQTTSN_PROTO_V1_2_NAME, <<1,2>>).
+-define(PROTOCOL_NAMES, [{?MQTTSN_PROTO_V1_2, ?MQTTSN_PROTO_V1_2_NAME}]).
 
 -type version() :: ?MQTTSN_PROTO_V1_2.
+-type host() :: inet:ip4_address().
 
 %%--------------------------------------------------------------------
 %% MQTT-SN QoS Levels
@@ -32,5 +34,6 @@
 
 -type packet_id() :: 0..16#FFFF.
 -type topic_id() :: 0..16#FFFF.
+-type gw_id() :: 0..16#FF.
 
 -endif.

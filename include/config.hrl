@@ -20,7 +20,7 @@
 -define(MAX_PACKET_ID, 16#ffff).
 -define(MAX_PACKET_SIZE, 16#ffff).
 
--type host() :: inet:ip_address() | inet:hostname().
+
 -type msg_handler() :: fun((topic_id(), string()) -> term()).
 -type option() ::
         {strict_mode, boolean()} | {clean_session, boolean()} | {max_size, 1..?MAX_PACKET_SIZE} |
@@ -54,9 +54,9 @@
          host = ?DEFAULT_ADDRESS :: host(),
          port = ?DEFAULT_PORT :: inet:port_number(),
          % protocol config
-         client_id = <<?CLIENT_ID>> :: bin_1_byte(),
+         client_id = ?CLIENT_ID :: bin_1_byte(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
-         proto_name = proplists:get_value(?MQTTSN_PROTO_V1_2, ?PROTOCOL_NAMES) :: iodata(),
+         proto_name = ?MQTTSN_PROTO_V1_2_NAME :: iodata(),
          radius = 3 :: non_neg_integer(), duration = 50 :: non_neg_integer(), qos = ?QOS_0 :: qos(),
          will = false :: boolean(), will_topic = "" :: string(), will_msg = "" :: string()}).
 

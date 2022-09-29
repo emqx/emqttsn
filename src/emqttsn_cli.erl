@@ -1,7 +1,6 @@
 -module(emqttsn_cli).
 
 -include("version.hrl").
--include("config.hrl").
 -include("packet.hrl").
 
 -export([main/1]).
@@ -171,9 +170,11 @@ check_required_args(PubSub, Keys, Opts) ->
                 Keys),
   ok.
 
+-spec parse_cmd_opts([{atom(), term()}]) -> [{atom(), term()}].
 parse_cmd_opts(Opts) ->
   parse_cmd_opts(Opts, []).
 
+-spec parse_cmd_opts([{atom(), term()}], [{atom(), term()}]) -> [{atom(), term()}].
 parse_cmd_opts([], Acc) ->
   Acc;
 parse_cmd_opts([{host, Host} | Opts], Acc) ->
@@ -232,6 +233,7 @@ parse_cmd_opts([{payload, Payload} | Opts], Acc) ->
 parse_cmd_opts([_ | Opts], Acc) ->
   parse_cmd_opts(Opts, Acc).
 
+-spec maybe_append(term(), term(), [{term(), term()}]) -> [{term(), term()}].
 maybe_append(Key, Value, TupleList) ->
   case lists:keytake(Key, 1, TupleList) of
     {value, {Key, OldValue}, NewTupleList} ->
