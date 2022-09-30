@@ -46,10 +46,6 @@ merge_opt(Config, [{msg_handler, Value} | Options]) ->
   merge_opt(Config#config{msg_handler = Value}, Options);
 merge_opt(Config, [{send_port, Value} | Options]) ->
   merge_opt(Config#config{send_port = Value}, Options);
-merge_opt(Config, [{host, Value} | Options]) ->
-  merge_opt(Config#config{host = Value}, Options);
-merge_opt(Config, [{port, Value} | Options]) ->
-  merge_opt(Config#config{port = Value}, Options);
 merge_opt(Config, [{client_id, Value} | Options]) ->
   merge_opt(Config#config{client_id = Value}, Options);
 merge_opt(Config, [{proto_ver, Value} | Options]) ->
@@ -60,8 +56,12 @@ merge_opt(Config, [{radius, Value} | Options]) ->
   merge_opt(Config#config{radius = Value}, Options);
 merge_opt(Config, [{duration, Value} | Options]) ->
   merge_opt(Config#config{duration = Value}, Options);
-merge_opt(Config, [{qos, Value} | Options]) ->
-  merge_opt(Config#config{qos = Value}, Options);
+merge_opt(Config, [{recv_qos, Value} | Options]) ->
+  merge_opt(Config#config{recv_qos = Value}, Options);
+merge_opt(Config, [{pub_qos, Value} | Options]) ->
+  merge_opt(Config#config{pub_qos = Value}, Options);
+merge_opt(Config, [{will_qos, Value} | Options]) ->
+  merge_opt(Config#config{will_qos = Value}, Options);
 merge_opt(Config, [{will, Value} | Options]) ->
   merge_opt(Config#config{will = Value}, Options);
 merge_opt(Config, [{will_topic, Value} | Options]) ->
@@ -88,7 +88,7 @@ start_link(Name, Option) ->
           {error, Reason};
         {ok, StateM} ->
           Receiver = spawn(emqttsn_udp, recv, [Socket, StateM, Config]),
-          {Socket, #client{state_m = StateM, receiver = Receiver}, Config}
+          {ok, Socket, #client{state_m = StateM, receiver = Receiver}, Config}
       end
   end.
 
@@ -104,11 +104,11 @@ subscribe(#client{state_m = StateM}, TopicIdType, TopicIdOrName, MaxQos) ->
 publish(#client{state_m = StateM}, Retain, TopicIdType, TopicIdOrName, Message) ->
   gen_statem:cast(StateM, {pub, Retain, TopicIdType, TopicIdOrName, Message}).
 
--spec add_host(client(), host(), port(), bitstring()) -> ok.
+-spec add_host(client(), host(), port(), gw_id()) -> ok.
 add_host(#client{state_m = StateM}, Host, Port, GateWayId) ->
   gen_statem:cast(StateM, {add_gw, Host, Port, GateWayId}).
 
--spec connect(client(), bitstring()) -> ok.
+-spec connect(client(), gw_id()) -> ok.
 connect(#client{state_m = StateM}, GateWayId) ->
   gen_statem:cast(StateM, {connect, GateWayId}).
 

@@ -219,7 +219,7 @@ handle_event(cast, ?WILLTOPICREQ_PACKET(), found,
              State = #state{config = Config, socket = Socket}) ->
   ?LOG_STATE(debug, "Automatically answer for will_topic request",
              #{}, State),
-  #config{qos = Qos, will_topic = WillTopic} = Config,
+  #config{will_qos = Qos, will_topic = WillTopic} = Config,
   Retain = false,
   emqttsn_send:send_willtopic(Config, Socket, Qos, Retain, WillTopic),
   {keep_state, State, {state_timeout, update, connect_ack}};
@@ -296,15 +296,21 @@ handle_event(cast, ?REGACK_PACKET(TopicId, RemotePacketId, ReturnCode), wait_reg
      return_code => ReturnCode}, State),
   case ReturnCode of
     ?RC_ACCEPTED ->
-      IdMap = dict:store(TopicId, TopicName, IdMap),
-      NameMap = dict:store(TopicName, TopicId, NameMap);
-    _ -> ?LOG_STATE(error, "failed for register response",
-                    #{return_code => ReturnCode}, State)
-  end,
-  {next_state, connected,
-   State#state{next_packet_id = next_packet_id(RemotePacketId),
-               waiting_data = {}, topic_id_name = IdMap,
-               topic_name_id = NameMap}};
+      NewIdMap = dict:store(TopicId, TopicName, IdMap),
+      NewNameMap = dict:store(TopicName, TopicId, NameMap),
+      {next_state, connected,
+      State#state{next_packet_id = next_packet_id(RemotePacketId),
+                  waiting_data = {}, topic_id_name = NewIdMap,
+                  topic_name_id = NewNameMap}};
+    _ -> 
+      ?LOG_STATE(error, "failed for register response",
+                    #{return_code => ReturnCode}, State),
+      {next_state, connected,
+      State#state{next_packet_id = next_packet_id(RemotePacketId),
+                  waiting_data = {}, topic_id_name = IdMap,
+                  topic_name_id = NameMap}}
+  end;
+  
 
 %%------------------------------------------------------------------------------
 %% @doc Answer for register request is timeout and retry register
@@ -355,7 +361,7 @@ handle_event(cast,
   ?LOG_STATE(debug, "Finish subscribe request and back to connected",
     #{packet_id => RemotePacketId, topic_id_or_name => TopicIdOrName,
      return_code => ReturnCode, grant_qos => GrantQos}, State),
-  #config{qos = LocalQos} = Config,
+  #config{recv_qos = LocalQos} = Config,
   if ReturnCode =/= ?RC_ACCEPTED
     -> ?LOG_STATE(error, "failed for subscribe response",
                   #{return_code => ReturnCode}, State)
@@ -509,10 +515,10 @@ handle_event(cast, ?PUBREC_PACKET(RemotePacketId), wait_pub_qos2,
             end,
   #config{ack_timeout = AckTimeout,
           max_message_each_topic = TopicMaxMsg} = Config,
-  State = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
+  NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
   emqttsn_send:send_pubrel(Config, Socket, RemotePacketId),
   {next_state, wait_pubrel_qos2,
-   State#state{next_packet_id = next_packet_id(RemotePacketId),
+  NewState#state{next_packet_id = next_packet_id(RemotePacketId),
                waiting_data = {pubrel, ?QOS_2}},
    {timeout, AckTimeout, {?RESEND_TIME_BEG}}};
 
@@ -732,9 +738,9 @@ handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
              #{type => TopicIdType, topic_id_or_name => TopicIdOrName}, State),
   #config{ack_timeout = AckTimeout} = Config,
   emqttsn_send:send_subscribe(Config, Socket, false, TopicIdType, PacketId, TopicIdOrName, MaxQos),
-  State = State#state{next_packet_id = next_packet_id(PacketId),
-                      waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}},
-  {next_state, wait_sub, State, {timeout, AckTimeout, {?RESEND_TIME_BEG}}};
+  {next_state, wait_sub, State#state{next_packet_id = next_packet_id(PacketId),
+                                     waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}}, 
+                                     {timeout, AckTimeout, {?RESEND_TIME_BEG}}};
 
 %%------------------------------------------------------------------------------
 %% @doc Request Gateway to publish and then wait for
@@ -753,26 +759,24 @@ handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
 %%------------------------------------------------------------------------------
 handle_event(cast, {pub, Retain, TopicIdType, TopicIdOrName, Message}, connected,
              State = #state{next_packet_id = PacketId, socket = Socket,
-                            topic_name_id = NameMap, config = Config,
-                            topic_id_use_qos = QosMap}) ->
+                            topic_name_id = NameMap, config = Config}) ->
   ?LOG_STATE(debug, "Request Gateway to publish",
     #{type => TopicIdType, topic_id_or_name => TopicIdOrName,
      retain => Retain}, State),
   #config{ack_timeout = AckTimeout,
-          max_message_each_topic = TopicMaxMsg} = Config,
+          max_message_each_topic = TopicMaxMsg, pub_qos = Qos} = Config,
   TopicId = case TopicIdType of
               ?PRE_DEF_TOPIC_ID -> TopicIdOrName;
               ?TOPIC_ID -> TopicIdOrName;
               ?SHORT_TOPIC_NAME -> dict:fetch(TopicIdOrName, NameMap)
             end,
-  Qos = dict:fetch(TopicId, QosMap),
   emqttsn_send:send_publish(Config, Socket, Qos, ?DUP_FALSE, Retain,
                             TopicIdType, TopicIdOrName, PacketId, Message),
 
   case Qos of
     ?QOS_0 ->
-      State = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
-      {keep_state, State#state{next_packet_id = next_packet_id(PacketId)}};
+      NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
+      {keep_state, NewState#state{next_packet_id = next_packet_id(PacketId)}};
     ?QOS_1 -> {next_state, wait_pub_qos1,
                State#state{next_packet_id = next_packet_id(PacketId),
                            waiting_data = {pub, ?QOS_1, TopicIdType,

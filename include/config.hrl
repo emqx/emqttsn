@@ -50,14 +50,12 @@
          msg_handler = [fun emqttsn_utils:default_msg_handler/2] :: [msg_handler()],
          %local config
          send_port = ?DEFAULT_PORT :: inet:port_number(),
-         % gateway config
-         host = ?DEFAULT_ADDRESS :: host(),
-         port = ?DEFAULT_PORT :: inet:port_number(),
          % protocol config
          client_id = ?CLIENT_ID :: bin_1_byte(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
          proto_name = ?MQTTSN_PROTO_V1_2_NAME :: iodata(),
-         radius = 3 :: non_neg_integer(), duration = 50 :: non_neg_integer(), qos = ?QOS_0 :: qos(),
+         radius = 3 :: non_neg_integer(), duration = 50 :: non_neg_integer(), 
+         will_qos = ?QOS_0 :: qos(), recv_qos = ?QOS_0 :: qos(), pub_qos = ?QOS_0 :: qos(),
          will = false :: boolean(), will_topic = "" :: string(), will_msg = "" :: string()}).
 
 -type config() :: #config{}.
