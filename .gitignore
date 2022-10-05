@@ -25,3 +25,4 @@ emqtt.app.src
 emqtt_cli
 rebar3
 mqttsn.iml
+Mnesia.nonode@nohost/
