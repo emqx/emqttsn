@@ -3,15 +3,13 @@
 -include("config.hrl").
 -include("packet.hrl").
 -include("logger.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 -export([start_link/2, register/2, subscribe/4, publish/5, add_host/4, connect/2,
          get_state/1, reset_config/2, stop/1]).
 
 -export_type([client/0]).
 
--record(client, {state_m :: pid(), receiver :: pid()}).
-
--type client() :: #client{}.
 
 -spec merge_opt(#config{}, [option()]) -> #config{}.
 merge_opt(Config, [{strict_mode, Value} | Options]) ->
@@ -46,8 +44,6 @@ merge_opt(Config, [{msg_handler, Value} | Options]) ->
   merge_opt(Config#config{msg_handler = Value}, Options);
 merge_opt(Config, [{send_port, Value} | Options]) ->
   merge_opt(Config#config{send_port = Value}, Options);
-merge_opt(Config, [{client_id, Value} | Options]) ->
-  merge_opt(Config#config{client_id = Value}, Options);
 merge_opt(Config, [{proto_ver, Value} | Options]) ->
   merge_opt(Config#config{proto_ver = Value}, Options);
 merge_opt(Config, [{proto_name, Value} | Options]) ->
@@ -74,7 +70,9 @@ merge_opt(Config, []) ->
 -spec start_link(string(), [option()]) ->
                   {ok, inet:socket(), client(), config()} | {error, term()}.
 start_link(Name, Option) ->
-  Config = merge_opt(#config{}, Option),
+  NameLength = string:length(Name),
+  ?assert(NameLength >= 1 andalso NameLength =< 23),
+  Config = merge_opt(#config{client_id = Name}, Option),
   #config{send_port = Port} = Config,
 
   case emqttsn_udp:init_port(Port) of

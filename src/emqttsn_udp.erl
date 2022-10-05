@@ -18,6 +18,7 @@
 
 -include("logger.hrl").
 -include("config.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([init_port/1, init_port/0, connect/3, send/2, send_anywhere/4, broadcast/3,
          recv/3]).
@@ -28,14 +29,14 @@
 %%------------------------------------------------------------------------------
 -spec init_port(inet:port_number()) -> {ok, inet:socket()} | {error, term()}.
 init_port(LocalPort) ->
-  case gen_udp:open(LocalPort) of
+  case gen_udp:open(LocalPort, [binary]) of
     {ok, Socket} ->
       {ok, Socket};
     {error, Reason} when LocalPort =:= 0 ->
       ?LOG(error, "Open random port failed", #{reason => Reason}),
       {error, Reason};
     {error, _Reason} when LocalPort =/= 0 ->
-      ?EASY_LOG(warning, "Open 1884 failed, turn to random port"),
+      ?LOG(warning, "Open port ~p failed, turn to random port", [LocalPort]),
       init_port()
   end.
 
@@ -62,36 +63,38 @@ send(Socket, Bin) ->
 send_anywhere(Socket, Bin, Address, RemotePort) ->
   gen_udp:send(Socket, {Address, RemotePort}, Bin).
 
--spec broadcast(inet:socket(), bitstring(), inet:port_number()) -> ok | {error, term()}.
+-spec broadcast(inet:socket(), bitstring(), inet:port_number()) -> {ok, inet:socket()} | {error, term()}.
 broadcast(Socket, Bin, RemotePort) ->
-  case inet:peername(Socket) of
+  case inet:sockname(Socket) of
     {ok, {_Address, LocalPort}} ->
-      {ok, TmpSocket} = gen_udp:open(LocalPort, [{broadcast, true}]),
+      gen_udp:close(Socket),
+      {ok, TmpSocket} = gen_udp:open(LocalPort, [binary, {broadcast, true}]),
       case gen_udp:send(TmpSocket, '255.255.255.255', RemotePort, Bin) of
         ok ->
           gen_udp:close(TmpSocket),
-          ok;
+          {ok, NewSocket} = gen_udp:open(LocalPort, [binary, {broadcast, true}]),
+          {ok, NewSocket};
         {error, Reason} ->
           {error, Reason}
       end;
     {error, Reason} ->
-      ?LOG(warning, "boardcast failed", #{reason => Reason}),
+      ?LOG_WARNING("boardcast failed:~p", [Reason]),
       {error, Reason}
   end.
 
 % parse and verify the length of packet
 
--spec recv_packet(inet:socket(), emqtsn:client(), config()) -> ok.
-recv_packet(Socket, Client, #config{max_size = MaxSize}) ->
-  case gen_udp:recv(Socket, MaxSize) of
-    {ok, RecvData} ->
-      gen_statem:cast(Client, {recv, RecvData});
-    {error, Reason} ->
-      ?LOG(warning, "failed to recv packet", #{reason => Reason}),
+-spec recv_packet(inet:socket(), pid()) -> ok.
+recv_packet(Socket, StateM) ->
+  receive
+    {udp, Socket, IP, InPortNo, Bin} -> 
+      gen_statem:cast(StateM, {recv, {IP, InPortNo, Bin}}),
+      ok;
+    _ ->
       ok
   end.
 
--spec recv(inet:socket(), emqtsn:client(), config()) -> no_return().
-recv(Socket, Client, Config) ->
-  recv_packet(Socket, Client, Config),
-  recv(Socket, Client, Config).
+-spec recv(inet:socket(), pid(), config()) -> no_return().
+recv(Socket, StateM, Config) ->
+  recv_packet(Socket, StateM),
+  recv(Socket, StateM, Config).

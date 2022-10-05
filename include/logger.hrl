@@ -18,18 +18,9 @@
 
 -define(EMQTT_LOGGER_HRL, true).
 
--define(LOG(Level, Data, Meta),
-%% check 'allow' here, only evaluate Data and Meta when necessary
-  case logger:allow(Level, ?MODULE) of
-    true ->
-      logger:log(Level,
-                 Data,
-                 Meta#{mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY}, line => ?LINE});
-    false ->
-      ok
-  end).
+-include_lib("kernel/include/logger.hrl").
 
--define(EASY_LOG(Level, Data),
-  ?LOG(Level, Data, #{})).
+-define(LOG_STATE(Level, Data, Meta, State),
+  ?LOG(Level, Data ++ "\n~p", Meta ++ [State])).
 
 -endif.

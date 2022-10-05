@@ -51,7 +51,7 @@
          %local config
          send_port = ?DEFAULT_PORT :: inet:port_number(),
          % protocol config
-         client_id = ?CLIENT_ID :: bin_1_byte(),
+         client_id = ?CLIENT_ID :: string(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
          proto_name = ?MQTTSN_PROTO_V1_2_NAME :: iodata(),
          radius = 3 :: non_neg_integer(), duration = 50 :: non_neg_integer(), 

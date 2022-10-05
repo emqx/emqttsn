@@ -10,8 +10,7 @@
 
 -export([init/1, callback_mode/0, start_link/2, handle_event/4]).
 
--define(LOG_STATE(Level, Data, Meta, State),
-  ?LOG(Level, Data, Meta#{state => State})).
+
 
 -spec callback_mode() -> gen_statem:callback_mode_result().
 callback_mode() ->
@@ -20,7 +19,7 @@ callback_mode() ->
 -spec start_link(string(), {inet:socket(), config()}) -> {ok, pid()} | {error, term()}.
 start_link(Name, {Socket, Config}) ->
   case gen_statem:start_link({global, Name}, ?MODULE, {Name, Socket, Config}, []) of
-    {'ok', Pid} -> Pid;
+    {'ok', Pid} -> {ok, Pid};
     'ignore' -> 
       ?LOG(error, "gen_statem starting process returns ignore", #{reason => ignore}),
       {error, ignore};
@@ -49,10 +48,14 @@ init({Name, Socket, Config}) ->
 -spec handle_event(atom(), term(), atom(), state()) -> gen_statem:event_handler_result(state()).
 handle_event(enter, _OldState, initialized,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Find the Host of service gateway", #{}, State),
+  ?LOG_STATE(debug, "Find the Host of service gateway", [], State),
   #config{search_gw_interval = Interval} = Config,
-  emqttsn_send:broadcast_searchgw(Config, Socket, ?DEFAULT_PORT, ?DEFAULT_RADIUS),
-  {keep_state, State, {timeout, Interval, {}}};
+  case emqttsn_send:broadcast_searchgw(Config, Socket, ?DEFAULT_PORT, ?DEFAULT_RADIUS) of
+    {ok, NewSocket} -> 
+      {keep_state, State#state{socket = NewSocket}, {timeout, Interval, {}}};
+    {error, _Reason} ->
+      {keep_state, State, {timeout, Interval, {}}}
+    end;
 
 %%------------------------------------------------------------------------------
 %% @doc Resend searchgw when reach time interval T_SEARCHGW
@@ -64,8 +67,9 @@ handle_event(enter, _OldState, initialized,
 %% @see T_SEARCHGW
 %% @end
 %%------------------------------------------------------------------------------
-handle_event(state_timeout, {}, initialized, State) ->
-  ?LOG_STATE(debug, "Resend searchgw when reach time interval T_SEARCHGW",#{}, State),
+handle_event(state_timeout, {}, initialized, State = #state{config = Config}) ->
+  #config{search_gw_interval = Interval} = Config,
+  ?LOG_STATE(debug, "Resend searchgw when reach time interval T_SEARCHGW ~p", [Interval], State),
   {repeat_state, State};
 
 %%------------------------------------------------------------------------------
@@ -79,8 +83,8 @@ handle_event(state_timeout, {}, initialized, State) ->
 %%------------------------------------------------------------------------------
 handle_event(cast, {?ADVERTISE_PACKET(GateWayId, _Duration), Host, Port},
              initialized, State = #state{name = Name}) ->
-  ?LOG_STATE(debug, "Fetch gateway from received broadcast ADVERTISE packet",
-             #{gateway_id => GateWayId, host => Host, port => Port}, State),
+  ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast ADVERTISE packet",
+             [GateWayId, Host, Port], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = Host,
                                         port = Port, from = ?BROADCAST}),
   {keep_state, State};
@@ -96,9 +100,8 @@ handle_event(cast, {?ADVERTISE_PACKET(GateWayId, _Duration), Host, Port},
 %%------------------------------------------------------------------------------
 handle_event(cast, {?GWINFO_PACKET(GateWayId), Host, Port},
              initialized, State = #state{name = Name}) ->
-  ?LOG_STATE(debug,
-             "Fetch gateway from received broadcast GWINFO packet by gateway",
-             #{gateway_id => GateWayId, host => Host, port => Port}, State),
+  ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast GWINFO packet by gateway",
+              [GateWayId, Host, Port], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = Host,
                                         port = Port, from = ?BROADCAST}),
   {keep_state, State};
@@ -115,10 +118,8 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId), Host, Port},
 %%------------------------------------------------------------------------------
 handle_event(cast, {?GWINFO_PACKET(GateWayId, GateWayAdd), _Host, _Port},
              initialized, State = #state{name = Name}) ->
-  ?LOG_STATE(debug,
-    "Fetch gateway from received broadcast GWINFO packet by gateway",
-    #{gateway_id => GateWayId, host => GateWayAdd,
-     port => ?DEFAULT_PORT}, State),
+  ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast GWINFO packet by client",
+              [GateWayId, GateWayAdd, ?DEFAULT_PORT], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = GateWayAdd,
                                         port = ?DEFAULT_PORT,
                                         from = ?PARAPHRASE}),
@@ -135,8 +136,8 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId, GateWayAdd), _Host, _Port},
 %%------------------------------------------------------------------------------
 handle_event(cast, {add_gw, Host, Port, GateWayId}, initialized,
              State = #state{name = Name}) ->
-  ?LOG_STATE(debug, "Fetch gateway from manual add",
-             #{gateway_id => GateWayId, host => Host, port => Port}, State),
+  ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from manual add",
+              [GateWayId, Host, Port], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = Host,
                                         port = Port, from = ?MANUAL}),
   {keep_state, State};
@@ -152,13 +153,17 @@ handle_event(cast, {add_gw, Host, Port, GateWayId}, initialized,
 %%------------------------------------------------------------------------------
 handle_event(cast, {connect, GateWayId}, initialized,
              State = #state{name = Name, socket = Socket}) ->
-  ?LOG_STATE(debug, "Request to connect a exist gateway",
-             #{gateway_id => GateWayId}, State),
-  #gw_info{host = Host, port = Port} = emqttsn_utils:get_gw(Name, GateWayId),
-  emqttsn_udp:connect(Socket, Host, Port),
-  {next_state, found,
-   State#state{socket = Socket, active_gw =
-   #gw_collect{id = GateWayId, host = Host, port = Port}}};
+  ?LOG_STATE(debug, "Request to connect a exist gateway id ~p",
+             [GateWayId], State),
+  case emqttsn_utils:get_gw(Name, GateWayId) of
+    none -> 
+      {keep_state, State};
+  #gw_info{host = Host, port = Port} ->
+    emqttsn_udp:connect(Socket, Host, Port),
+    {next_state, found,
+    State#state{socket = Socket, active_gw =
+    #gw_collect{id = GateWayId, host = Host, port = Port}}}
+  end;
 
 %-------------------------------------------------------------------------------
 % Client connecting process
@@ -175,7 +180,7 @@ handle_event(cast, {connect, GateWayId}, initialized,
 %%------------------------------------------------------------------------------
 handle_event(enter, _OldState, found,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Connect to service gateway", #{}, State),
+  ?LOG_STATE(debug, "Connect to service gateway", [], State),
   #config{will = Will, clean_session = CleanSession,
           duration = Duration, client_id = ClientId,
           ack_timeout = AckTimeout} = Config,
@@ -196,9 +201,10 @@ handle_event(enter, _OldState, found,
 %%------------------------------------------------------------------------------
 handle_event(state_timeout, {ResendTimes}, found,
              State = #state{config = Config}) ->
-  ?LOG_STATE(debug, "Found timeout to receive gateway response",
-             #{resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend} = Config,
+  ?LOG_STATE(warning, "Found timeout to receive gateway response, retry: ~p/~p",
+            [ResendTimes], State),
+  
   if
     ResendTimes < MaxResend ->
       {repeat_state, State};
@@ -218,7 +224,7 @@ handle_event(state_timeout, {ResendTimes}, found,
 handle_event(cast, ?WILLTOPICREQ_PACKET(), found,
              State = #state{config = Config, socket = Socket}) ->
   ?LOG_STATE(debug, "Automatically answer for will_topic request",
-             #{}, State),
+             [], State),
   #config{will_qos = Qos, will_topic = WillTopic} = Config,
   Retain = false,
   emqttsn_send:send_willtopic(Config, Socket, Qos, Retain, WillTopic),
@@ -236,7 +242,7 @@ handle_event(cast, ?WILLTOPICREQ_PACKET(), found,
 handle_event(cast, ?WILLMSGREQ_PACKET(), found,
              State = #state{config = Config, socket = Socket}) ->
   ?LOG_STATE(debug, "Automatically answer for will_msg request",
-             #{}, State),
+             [], State),
   #config{will_msg = WillMsg} = Config,
   emqttsn_send:send_willmsg(Config, Socket, WillMsg),
   {keep_state, State, {state_timeout, update, connect_ack}};
@@ -253,7 +259,7 @@ handle_event(cast, ?WILLMSGREQ_PACKET(), found,
 handle_event(cast, ?CONNACK_PACKET(ReturnCode), found,
              State = #state{config = Config})
   when ReturnCode == ?RC_ACCEPTED ->
-  ?LOG_STATE(debug, "Gateway ensure connection is established", #{}, State),
+  ?LOG_STATE(debug, "Gateway ensure connection is established", [], State),
   #config{keep_alive = PingInterval} = Config,
   {next_state, connected, State#state{gw_failed_cycle = 0},
    {timeout, PingInterval, ping}};
@@ -269,8 +275,8 @@ handle_event(cast, ?CONNACK_PACKET(ReturnCode), found,
 %%------------------------------------------------------------------------------
 handle_event(cast, ?CONNACK_PACKET(ReturnCode), found,
              State = #state{name = Name, socket = Socket, config = Config}) ->
-  ?LOG_STATE(error, "failed for connect response",
-             #{return_code => ReturnCode}, State),
+  ?LOG_STATE(error, "failed for connect response, return code: ~p",
+             [ReturnCode], State),
   {next_state, initialized, #state{name = Name, socket = Socket, config = Config}};
 
 %-------------------------------------------------------------------------------
@@ -291,11 +297,11 @@ handle_event(cast, ?REGACK_PACKET(TopicId, RemotePacketId, ReturnCode), wait_reg
                             waiting_data = {reg, TopicName},
                             topic_id_name = IdMap, topic_name_id = NameMap})
   when RemotePacketId == LocalPacketId ->
-  ?LOG_STATE(debug, "Finish register request and back to connected",
-    #{topic_id => TopicId, packet_id => RemotePacketId,
-     return_code => ReturnCode}, State),
+  
   case ReturnCode of
     ?RC_ACCEPTED ->
+      ?LOG_STATE(debug, "Finish register topic id ~p and back to connected, packet id ~p",
+        [TopicId, RemotePacketId], State),
       NewIdMap = dict:store(TopicId, TopicName, IdMap),
       NewNameMap = dict:store(TopicName, TopicId, NameMap),
       {next_state, connected,
@@ -303,8 +309,8 @@ handle_event(cast, ?REGACK_PACKET(TopicId, RemotePacketId, ReturnCode), wait_reg
                   waiting_data = {}, topic_id_name = NewIdMap,
                   topic_name_id = NewNameMap}};
     _ -> 
-      ?LOG_STATE(error, "failed for register response",
-                    #{return_code => ReturnCode}, State),
+      ?LOG_STATE(error, "failed for register response, return code: ~p",
+                    [ReturnCode], State),
       {next_state, connected,
       State#state{next_packet_id = next_packet_id(RemotePacketId),
                   waiting_data = {}, topic_id_name = IdMap,
@@ -326,11 +332,12 @@ handle_event(cast, ?REGACK_PACKET(TopicId, RemotePacketId, ReturnCode), wait_reg
 %%------------------------------------------------------------------------------
 handle_event(state_timeout, {PacketId, TopicName, ResendTimes}, wait_reg,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Answer for register request is timeout and retry register",
-    #{packet_id => PacketId, topic_name => TopicName,
-     resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, resend_no_qos = WhetherResend,
           ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(debug, "Answer for register topic name ~p is timeout 
+              and retry register, packet id: ~p, retry: ~p/~p",
+              [TopicName, PacketId, ResendTimes, MaxResend], State),
+  
   if
     WhetherResend andalso ResendTimes < MaxResend ->
       emqttsn_send:send_register(Config, Socket, prev_packet_id(PacketId), TopicName),
@@ -358,13 +365,13 @@ handle_event(cast,
                             config = Config,
                             waiting_data = {sub, TopicIdType, TopicIdOrName, _MaxQos}})
   when RemotePacketId == LocalPacketId ->
-  ?LOG_STATE(debug, "Finish subscribe request and back to connected",
-    #{packet_id => RemotePacketId, topic_id_or_name => TopicIdOrName,
-     return_code => ReturnCode, grant_qos => GrantQos}, State),
+  ?LOG_STATE(debug, "Finish subscribe request and back to connected, 
+            packet: ~p, topic: ~p, return_code: ~p, qos: ~p",
+            [RemotePacketId, TopicIdOrName, ReturnCode, GrantQos], State),
   #config{recv_qos = LocalQos} = Config,
   if ReturnCode =/= ?RC_ACCEPTED
-    -> ?LOG_STATE(error, "failed for subscribe response",
-                  #{return_code => ReturnCode}, State)
+    -> ?LOG_STATE(error, "failed for subscribe response, return_code: ~p",
+                  [ReturnCode], State)
   end,
   Qos = min(GrantQos, LocalQos),
   NewQosMap = dict:store(RemoteTopicId, Qos, QosMap),
@@ -401,10 +408,10 @@ handle_event(state_timeout, {ResendTimes}, wait_sub,
              State =
              #state{next_packet_id = PacketId, config = Config, socket = Socket,
                     waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}}) ->
-  ?LOG_STATE(debug, "Answer for subscribe request is timeout and retry subscribe",
-             #{resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, resend_no_qos = WhetherResend,
           ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(warning, "Answer for subscribe request is timeout and retry subscribe, retry: ~p/~p",
+             [ResendTimes, MaxResend], State),
   if
     WhetherResend andalso ResendTimes < MaxResend ->
       emqttsn_send:send_subscribe(Config, Socket, true, TopicIdType,
@@ -434,8 +441,9 @@ handle_event(cast, ?PUBACK_PACKET(RemoteTopicId, RemotePacketId, ReturnCode),
                             waiting_data = {pub, ?QOS_1, TopicIdType,
                                             LocalTopicIdOrName, Message}})
   when RemotePacketId == LocalPacketId ->
-  ?LOG_STATE(debug, "Finish publish request and back to connected when at QoS 1",
-             #{packet_id => RemotePacketId, return_code => ReturnCode}, State),
+  ?LOG_STATE(debug, "Finish publish request and back to connected 
+             when at QoS 1, packet: ~p, return_code: ~p",
+             [RemotePacketId, ReturnCode], State),
   #config{max_message_each_topic = TopicMaxMsg} = Config,
   NewMap = case TopicIdType of
     ?PRE_DEF_TOPIC_ID -> 
@@ -448,8 +456,8 @@ handle_event(cast, ?PUBACK_PACKET(RemoteTopicId, RemotePacketId, ReturnCode),
       dict:store(RemoteTopicId, LocalTopicIdOrName, Map)
   end,
   if ReturnCode =/= ?RC_ACCEPTED
-    -> ?LOG_STATE(error, "failed for publish response",
-                  #{return_code => ReturnCode}, State)
+    -> ?LOG_STATE(error, "failed for publish response, return code: ~p",
+                  [ReturnCode], State)
   end,
   NewState = emqttsn_utils:store_msg(State, RemoteTopicId, TopicMaxMsg, Message),
   {next_state, connected,
@@ -474,9 +482,11 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos1,
                             socket = Socket,
                             waiting_data = {pub, ?QOS_1, TopicIdType,
                                             TopicIdOrName, Message}}) ->
-  ?LOG_STATE(debug, "Answer for publish request is timeout and retry publish at QoS 1",
-             #{retain => Retain, resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(warning, "Answer for publish request is timeout 
+             and retry publish at QoS 1, retain: ~p, retry: ~p/~p",
+             [Retain, ResendTimes, MaxResend], State),
+  
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_publish(Config, Socket, ?QOS_1, ?DUP_TRUE, Retain, TopicIdType,
@@ -506,8 +516,8 @@ handle_event(cast, ?PUBREC_PACKET(RemotePacketId), wait_pub_qos2,
                             waiting_data = {pub, ?QOS_2, TopicIdType,
                                             TopicIdOrName, Message}})
   when RemotePacketId == LocalPacketId ->
-  ?LOG_STATE(debug, "Continue publish request part 2",
-             #{packet_id => RemotePacketId}, State),
+  ?LOG_STATE(debug, "Continue publish request part 2, packet id: ~p",
+             [RemotePacketId], State),
   TopicId = case TopicIdType of
               ?PRE_DEF_TOPIC_ID -> TopicIdOrName;
               ?TOPIC_ID -> TopicIdOrName;
@@ -541,9 +551,10 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos2,
                             config = Config, socket = Socket,
                             waiting_data = {pub, ?QOS_2, TopicIdType,
                                             TopicIdOrName, Message}}) ->
-  ?LOG_STATE(debug, "Answer for publish request is timeout at part 2",
-             #{retain => Retain, resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(warning, "Answer for publish request is timeout 
+             at part 2, retain: ~p, retry: ~p/~p",
+             [Retain, ResendTimes, MaxResend], State),
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_publish(Config, Socket, ?QOS_2, ?DUP_TRUE, Retain,
@@ -570,8 +581,8 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos2,
 %%------------------------------------------------------------------------------
 handle_event(cast, ?PUBCOMP_PACKET(RemotePacketId), wait_pubrel_qos2,
              State = #state{waiting_data = {pubrel, ?QOS_2}}) ->
-  ?LOG_STATE(debug, "Finish publish request part 3",
-             #{packet_id => RemotePacketId}, State),
+  ?LOG_STATE(debug, "Finish publish request part 3, packet id: ~p",
+             RemotePacketId, State),
   {next_state, connected,
    State#state{next_packet_id = next_packet_id(RemotePacketId),
                waiting_data = {}}};
@@ -594,9 +605,10 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrel_qos2,
              State = #state{next_packet_id = PacketId,
                             config = Config, socket = Socket,
                             waiting_data = {pubrel, ?QOS_2}}) ->
-  ?LOG_STATE(debug, "Answer for publish request is timeout at part 3",
-             #{resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(warning, "Answer for publish request is timeout at part 3, retry: ~p/~p",
+             [ResendTimes, MaxResend], State),
+  
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_pubrec(Config, Socket, prev_packet_id(PacketId)),
@@ -623,8 +635,8 @@ handle_event(cast, ?PUBREL_PACKET(RemotePacketId), wait_pubrec_qos2,
              State = #state{socket = Socket, config = Config,
                             next_packet_id = LocalPacketId})
   when RemotePacketId == LocalPacketId ->
-  ?LOG_STATE(debug, "Finish receive publish part 2",
-             #{packet_id => RemotePacketId}, State),
+  ?LOG_STATE(debug, "Finish receive publish part 2, packet id: ~p",
+             RemotePacketId, State),
   emqttsn_send:send_pubcomp(Config, Socket, RemotePacketId),
   {next_state, connected,
    State#state{next_packet_id = next_packet_id(RemotePacketId)}};
@@ -647,9 +659,10 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrec_qos2,
              State = #state{next_packet_id = PacketId,
                             config = Config, socket = Socket,
                             waiting_data = {FromStateName}}) ->
-  ?LOG_STATE(debug, "Answer for receive publish is timeout at part 2",
-             #{resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(warning, "Answer for receive publish is timeout at part 2, retry: ~p/~p",
+             [ResendTimes, MaxResend], State),
+  
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_pubrec(Config, Socket, prev_packet_id(PacketId)),
@@ -669,7 +682,7 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrec_qos2,
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, ?PINGRESP_PACKET(), wait_pingreq, State) ->
-  ?LOG_STATE(debug, "Finish ping request and back to connected", #{}, State),
+  ?LOG_STATE(debug, "Finish ping request and back to connected", [], State),
   {next_state, connected, State};
 
 %%------------------------------------------------------------------------------
@@ -686,9 +699,9 @@ handle_event(cast, ?PINGRESP_PACKET(), wait_pingreq, State) ->
 %%------------------------------------------------------------------------------
 handle_event(state_timeout, {ResendTimes}, wait_pingreq,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Answer for ping request is timeout and retry pingreq",
-             #{resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, ack_timeout = AckTimeout} = Config,
+  ?LOG_STATE(warning, "Answer for ping request is timeout and retry pingreq, retry: ~p/~p",
+             [ResendTimes, MaxResend], State),
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_pingreq(Config, Socket),
@@ -713,8 +726,8 @@ handle_event(state_timeout, {ResendTimes}, wait_pingreq,
 handle_event(cast, {reg, TopicName}, connected,
              State = #state{next_packet_id = PacketId,
                             socket = Socket, config = Config}) ->
-  ?LOG_STATE(debug, "Request Gateway to register and then wait for regack",
-             #{topic_name => TopicName}, State),
+  ?LOG_STATE(debug, "Request Gateway to register and then wait for regack, topic name: ~p",
+             [TopicName], State),
   #config{ack_timeout = AckTimeout} = Config,
   emqttsn_send:send_register(Config, Socket, PacketId, TopicName),
   {next_state, wait_reg,
@@ -734,8 +747,9 @@ handle_event(cast, {reg, TopicName}, connected,
 handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
              State = #state{next_packet_id = PacketId,
                             socket = Socket, config = Config}) ->
-  ?LOG_STATE(debug, "Request Gateway to subscribe and then wait for suback",
-             #{type => TopicIdType, topic_id_or_name => TopicIdOrName}, State),
+  ?LOG_STATE(debug, "Request Gateway to subscribe and then 
+             wait for suback, type: ~p, topic: ~p",
+             [TopicIdType, TopicIdOrName], State),
   #config{ack_timeout = AckTimeout} = Config,
   emqttsn_send:send_subscribe(Config, Socket, false, TopicIdType, PacketId, TopicIdOrName, MaxQos),
   {next_state, wait_sub, State#state{next_packet_id = next_packet_id(PacketId),
@@ -760,9 +774,8 @@ handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
 handle_event(cast, {pub, Retain, TopicIdType, TopicIdOrName, Message}, connected,
              State = #state{next_packet_id = PacketId, socket = Socket,
                             topic_name_id = NameMap, config = Config}) ->
-  ?LOG_STATE(debug, "Request Gateway to publish",
-    #{type => TopicIdType, topic_id_or_name => TopicIdOrName,
-     retain => Retain}, State),
+  ?LOG_STATE(debug, "Request Gateway to publish, type: ~p, topic: ~p, return code: ~p",
+    [TopicIdType, TopicIdOrName, Retain], State),
   #config{ack_timeout = AckTimeout,
           max_message_each_topic = TopicMaxMsg, pub_qos = Qos} = Config,
   TopicId = case TopicIdType of
@@ -806,7 +819,7 @@ handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos,
                                             _RemoteRetain, _TopicIdType,
                                             _TopicId, _PacketId, _Message),
              connected, State) ->
-  ?LOG_STATE(debug, "Receive publish request from other clients", #{}, State),
+  ?LOG_STATE(debug, "Receive publish request from other clients", [], State),
   recv_publish(Packet, State, connected);
 
 %%------------------------------------------------------------------------------
@@ -820,11 +833,11 @@ handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos,
 %%------------------------------------------------------------------------------
 handle_event(cast, ?PINGREQ_PACKET(ClientId), connected,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Receive ping request from gateway", #{}, State),
+  ?LOG_STATE(debug, "Receive ping request from gateway", [], State),
   #config{strict_mode = StrictMode} = Config,
   if StrictMode andalso ClientId =/= ?CLIENT_ID
-    -> ?LOG_STATE(warning, "remote pingreq has a wrong client id",
-                  #{client_id => ClientId}, State)
+    -> ?LOG_STATE(warning, "remote pingreq has a wrong client id ~p",
+                  [ClientId], State)
   end,
   emqttsn_send:send_pingresp(Config, Socket),
   {keep_state, State};
@@ -840,7 +853,7 @@ handle_event(cast, ?PINGREQ_PACKET(ClientId), connected,
 %%------------------------------------------------------------------------------
 handle_event(state_timeout, ping, connected,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Send ping request to gateway", #{}, State),
+  ?LOG_STATE(debug, "Send ping request to gateway", [], State),
   #config{ack_timeout = AckTimeout} = Config,
   emqttsn_send:send_pingreq(Config, Socket),
   {next_state, wait_pingreq, State, {timeout, AckTimeout, {?RESEND_TIME_BEG}}};
@@ -859,11 +872,11 @@ handle_event(state_timeout, ping, connected,
 %%------------------------------------------------------------------------------
 handle_event(cast, sleep, connected,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Notify Gateway to sleep for a duration", #{}, State),
+  ?LOG_STATE(debug, "Notify Gateway to sleep for a duration", [], State),
   #config{sleep_interval = Interval} = Config,
   if
     Interval == 0 ->
-      ?LOG_STATE(debug, "0 Sleep interval has no sleeping mode", #{}, State),
+      ?LOG_STATE(debug, "0 Sleep interval leads to no sleeping mode", [], State),
       {keep_state, State};
     Interval > 0 ->
       emqttsn_send:send_asleep(Config, Socket, Interval),
@@ -893,7 +906,7 @@ handle_event(enter, _OldState, connect_other,
              State = #state{active_gw = #gw_collect{id = FormerId},
                             config = Config, socket = Socket,
                             gw_failed_cycle = TryTimes, name = Name}) ->
-  ?LOG_STATE(debug, "Connect to other available gateway", #{}, State),
+  ?LOG_STATE(debug, "Connect to other available gateway", [], State),
   #config{reconnect_max_times = MaxTry} = Config,
   Desperate = TryTimes > MaxTry,
   AvailableGW = emqttsn_utils:next_gw(Name, FormerId),
@@ -924,7 +937,7 @@ handle_event(enter, _OldState, connect_other,
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(state_timeout, ping, asleep, State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Send ping request to gateway to awake", #{}, State),
+  ?LOG_STATE(debug, "Send ping request to gateway to awake", [], State),
   #config{ack_timeout = AckTimeout, client_id = ClintId} = Config,
   emqttsn_send:send_awake(Config, Socket, ClintId),
   {next_state, awake, State, {timeout, AckTimeout,
@@ -946,7 +959,7 @@ handle_event(state_timeout, ping, asleep, State = #state{config = Config, socket
 handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetain,
                                             _TopicIdType, _TopicId, _PacketId,
                                             _Data), awake, State) ->
-  ?LOG_STATE(debug, "Receive publish request from other clients", #{}, State),
+  ?LOG_STATE(debug, "Receive publish request from other clients", [], State),
   recv_publish(Packet, State, awake);
 
 %%------------------------------------------------------------------------------
@@ -960,7 +973,7 @@ handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetai
 %%------------------------------------------------------------------------------
 handle_event(cast, ?PINGRESP_PACKET(), awake, State = #state{config = Config}) ->
   ?LOG_STATE(debug, "Receive pingresp request from gateway and goto asleep",
-             #{}, State),
+             [], State),
   #config{sleep_interval = Interval} = Config,
   {next_state, asleep, State, {timeout, Interval, ping}};
 
@@ -978,9 +991,10 @@ handle_event(cast, ?PINGRESP_PACKET(), awake, State = #state{config = Config}) -
 %%------------------------------------------------------------------------------
 handle_event(state_timeout, {recv_awake, ResendTimes}, awake,
              State = #state{config = Config, socket = Socket}) ->
-  ?LOG_STATE(debug, "Answer for awake request is timeout and retry awake",
-             #{resend_times => ResendTimes}, State),
   #config{max_resend = MaxResend, client_id = ClientId} = Config,
+  ?LOG_STATE(warning, "Answer for awake request is timeout and retry awake, retry: ~p/~p",
+             [ResendTimes, MaxResend], State),
+  
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_awake(Config, Socket, ClientId),
@@ -1000,8 +1014,8 @@ handle_event(state_timeout, {recv_awake, ResendTimes}, awake,
 %%------------------------------------------------------------------------------
 handle_event(cast, {?SEARCHGW_PACKET(Radius), Host, Port}, _StateName,
              State = #state{name = Name, socket = Socket, config = Config}) ->
-  ?LOG_STATE(debug, "Answer for gateway address request from other clients",
-             #{query_host => Host, query_port => Port}, State),
+  ?LOG_STATE(debug, "Answer for gateway address ~p:~p request from other clients",
+             [Host, Port], State),
   FirstGW = emqttsn_utils:first_gw(Name),
   case FirstGW of
     #gw_info{id = GateWayId, host = GWHost} ->
@@ -1023,9 +1037,8 @@ handle_event(cast, ?REGISTER_PACKET(TopicId, PacketId, TopicName),
              StateName, State = #state{socket = Socket, topic_id_name = IdMap,
                                        topic_name_id = NameMap, config = Config})
   when StateName =:= connected orelse StateName =:= awake ->
-  ?LOG_STATE(debug, "Receive register request from other clients",
-    #{topic_id => TopicId, packet_id => PacketId,
-     topic_name => TopicName}, State),
+  ?LOG_STATE(debug, "Receive register request for ~p:~p from other clients, packet id: ~p",
+    [TopicId, TopicName, PacketId], State),
   NewIdMap = dict:store(TopicId, TopicName, IdMap),
   NewNameMap = dict:store(TopicName, TopicId, NameMap),
   emqttsn_send:send_regack(Config, Socket, TopicId, PacketId, ?RC_ACCEPTED),
@@ -1044,7 +1057,7 @@ handle_event(cast, ?REGISTER_PACKET(TopicId, PacketId, TopicName),
 handle_event(cast, set_interval, StateName,
              State = #state{config = Config, socket = Socket})
   when StateName =:= asleep orelse StateName =:= awake ->
-  ?LOG_STATE(debug, "Request gateway for a new sleeping interval", #{}, State),
+  ?LOG_STATE(debug, "Request gateway for a new sleeping interval", [], State),
   #config{sleep_interval = Interval} = Config,
   if
     Interval == 0 ->
@@ -1067,7 +1080,7 @@ handle_event(cast, disconnect, StateName,
              State = #state{name = Name,socket = Socket, config = Config})
   when StateName =:= asleep orelse StateName =:= awake orelse
        StateName =:= connected ->
-  ?LOG_STATE(debug, "Request gateway to disconnect", #{}, State),
+  ?LOG_STATE(debug, "Request gateway to disconnect", [], State),
   emqttsn_send:send_disconnect(Config, Socket),
   {next_state, initialized, #state{name = Name, socket = Socket, config = Config}};
 
@@ -1082,7 +1095,7 @@ handle_event(cast, disconnect, StateName,
 %%------------------------------------------------------------------------------
 handle_event(cast, connect, StateName, State)
   when StateName =:= asleep orelse StateName =:= awake ->
-  ?LOG_STATE(debug, "Request gateway to become active", #{}, State),
+  ?LOG_STATE(debug, "Request gateway to become active", [], State),
   {next_state, found, State};
 
 %-------------------------------------------------------------------------------
@@ -1099,8 +1112,8 @@ handle_event(cast, connect, StateName, State)
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, {reset_msg, MsgManager, MsgCounter}, _StateName, State) ->
-  ?LOG_STATE(info, "Reset message",
-             #{message_manager => MsgManager, message_counter => MsgCounter}, State),
+  ?LOG_STATE(debug, "Reset message\nManager: ~p\nCounter:~p",
+             [MsgManager, MsgCounter], State),
   {keep_state, State#state{msg_manager = MsgManager, msg_counter = MsgCounter}};
 
 %-------------------------------------------------------------------------------
@@ -1117,7 +1130,7 @@ handle_event(cast, {reset_msg, MsgManager, MsgCounter}, _StateName, State) ->
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, {config, Config}, _StateName, State) ->
-  ?LOG_STATE(info, "Change config", #{config => Config}, State),
+  ?LOG_STATE(debug, "Change config: ~p", [Config], State),
   {keep_state, State#state{config = Config}};
 
 %-------------------------------------------------------------------------------
@@ -1134,7 +1147,7 @@ handle_event(cast, {config, Config}, _StateName, State) ->
 %% @end
 %%------------------------------------------------------------------------------
 handle_event({call, From}, get_state, _StateName, State) ->
-  ?LOG_STATE(info, "Get state", #{}, State),
+  ?LOG_STATE(debug, "Get state", [], State),
   gen_statem:reply(From, State),
   {keep_state, State};
 
@@ -1152,7 +1165,7 @@ handle_event({call, From}, get_state, _StateName, State) ->
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, ?DISCONNECT_PACKET(), _StateName, State) ->
-  ?LOG_STATE(info, "Connection reset by server", #{}, State),
+  ?LOG_STATE(warning, "Connection reset by server", [], State),
   {next_state, found, State};
 
 %-------------------------------------------------------------------------------
@@ -1171,11 +1184,20 @@ handle_event(cast, ?DISCONNECT_PACKET(), _StateName, State) ->
 %% @see gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
-handle_event(cast, {recv, {Host, Port, Bin}}, _StateName, State) ->
-  ?LOG_STATE(debug, "RECV_Data",
-             #{data => Bin, Host => Host, port => Port}, State),
-  process_incoming({Host, Port, Bin}, State).
+handle_event(info, {udp, Socket, Host, Port, Bin}, _StateName, State = #state{socket = SelfSocket})
+when Socket =:= SelfSocket ->
+  ?LOG_STATE(debug, "recv packet {~p} from host ~p:~p",
+    [Bin, Host, Port], State),
+  process_incoming({Host, Port, Bin}, State);
+handle_event(info,{udp_error, _Socket, Reason}, _StateName, State) ->
+  ?LOG_STATE(debug, "recv failed for reason: ~p",
+             [Reason], State),
+  {keep_state, State};
 
+handle_event(Operation, Args, StateName, State) ->
+  ?LOG_WARNING("unsupported operation ~p with ~p at ~p",
+             [Operation, Args, StateName]),
+  {keep_state, State}.
 %%------------------------------------------------------------------------------
 %% @doc Judge whether to reserve the source of sender
 %% @end
