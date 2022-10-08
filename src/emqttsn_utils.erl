@@ -5,9 +5,9 @@
 -include("version.hrl").
 -include("logger.hrl").
 
--export([prev_packet_id/1, next_packet_id/1, store_msg/4, get_msg/2, get_msg/1,
-         get_all_topic_id/1, get_topic_id_from_name/3, store_gw/2, get_gw/2, get_gw/1, first_gw/1,
-         next_gw/2, default_msg_handler/2]).
+-export([next_packet_id/1, store_msg/4, get_msg/2, get_msg/1, get_one_msg/3,
+         get_topic_id/3, get_all_topic_id/1, get_topic_id_from_name/3, store_gw/2, get_gw/2,
+         get_gw/1, first_gw/1, next_gw/2, default_msg_handler/2]).
 
 %%--------------------------------------------------------------------
 %% gateway management lower utilities
@@ -51,19 +51,19 @@ msg_handler_recall(Handlers, TopicId, Msg) ->
                        {dict:dict(topic_id(), queue:queue()), dict:dict(topic_id(), pos_integer())}.
 store_msg_async(MsgManager, MsgCounter, TopicId, TopicMax, Msg) ->
   case {dict:find(TopicId, MsgCounter), dict:find(TopicId, MsgManager)} of
-    {{ok, OldNum}, {ok, TopicManager}} when OldNum < TopicMax ->
+    {{ok, OldNum}, {ok, MsgQueue}} when OldNum < TopicMax ->
       Num = OldNum + 1,
-      NewManager = queue:in(Msg, TopicManager);
-    {{ok, OldNum}, {ok, TopicManager}} when OldNum >= TopicMax ->
+      NewQueue = queue:in(Msg, MsgQueue);
+    {{ok, OldNum}, {ok, MsgQueue}} when OldNum >= TopicMax ->
       Num = OldNum,
-      {{value, _Item}, TmpManager} = queue:out(TopicManager),
-      NewManager = queue:in(Msg, TmpManager);
+      {{value, _Item}, TmpQueue} = queue:out(MsgQueue),
+      NewQueue = queue:in(Msg, TmpQueue);
     {error, error} ->
       Num = 0,
-      NewManager = queue:from_list([Msg])
+      NewQueue = queue:from_list([Msg])
   end,
-  NewMsgCounter = dict:append(TopicId, Num, MsgCounter),
-  NewMsgManager = dict:append(TopicId, NewManager, MsgManager),
+  NewMsgCounter = dict:store(TopicId, Num, MsgCounter),
+  NewMsgManager = dict:store(TopicId, NewQueue, MsgManager),
   {NewMsgManager, NewMsgCounter}.
 
 -spec refresh_msg_manager(topic_id(),
@@ -74,10 +74,10 @@ store_msg_async(MsgManager, MsgCounter, TopicId, TopicMax, Msg) ->
                             [string()]}.
 refresh_msg_manager(TopicId, MsgManager, MsgCounter) ->
   case dict:find(TopicId, MsgManager) of
-    {ok, Manager} ->
-      MsgManager = dict:erase(TopicId, MsgManager),
-      MsgCounter = dict:erase(TopicId, MsgCounter),
-      {MsgManager, MsgCounter, queue:to_list(Manager)};
+    {ok, MsgQueue} ->
+      NewMsgManager = dict:erase(TopicId, MsgManager),
+      NewMsgCounter = dict:erase(TopicId, MsgCounter),
+      {NewMsgManager, NewMsgCounter, queue:to_list(MsgQueue)};
     error ->
       {MsgManager, MsgCounter, []}
   end.
@@ -102,10 +102,9 @@ store_msg(State, TopicId, TopicMax, Msg) ->
       State#state{msg_manager = MsgManager, msg_counter = MsgCounter}
   end.
 
--spec get_one_msg(client(), topic_id()) ->
-                   {ok, dict:dict(topic_id(), [string()])} | invalid.
-get_one_msg(#client{state_m = StateM}, TopicId) ->
-  State = gen_statem:call(StateM, get_state),
+-spec get_one_msg(client(), topic_id(), boolean()) -> {ok, [string()]} | invalid.
+get_one_msg(Client, TopicId, Block) ->
+  State = gen_statem:call(Client, get_state),
   #state{msg_manager = MsgManager,
          msg_counter = MsgCounter,
          config = Config} =
@@ -116,9 +115,16 @@ get_one_msg(#client{state_m = StateM}, TopicId) ->
      Handlers =:= [] ->
        {NewMsgManager, NewMsgCounter, Messages} =
          refresh_msg_manager(TopicId, MsgManager, MsgCounter),
-       gen_statem:cast(StateM, {reset_msg, NewMsgManager, NewMsgCounter}),
-       Map = dict:new(),
-       {ok, dict:store(TopicId, Messages, Map)}
+       case {Block, Messages} of
+         {false, _} ->
+           gen_statem:cast(Client, {reset_msg, NewMsgManager, NewMsgCounter}),
+           {ok, Messages};
+         {true, []} ->
+           get_one_msg(Client, TopicId, true);
+         {true, _} ->
+           gen_statem:cast(Client, {reset_msg, NewMsgManager, NewMsgCounter}),
+           {ok, Messages}
+       end
   end.
 
 -spec get_msg(client(), [topic_id()]) ->
@@ -132,7 +138,7 @@ get_msg(Client, TopicIds) ->
 get_msg(_Client, [], Ret) ->
   {ok, Ret};
 get_msg(Client, [TopicId | TopicIds], Ret) ->
-  case get_one_msg(Client, TopicId) of
+  case get_one_msg(Client, TopicId, false) of
     invalid ->
       invalid;
     {ok, MsgOfTopicId} ->
@@ -141,25 +147,28 @@ get_msg(Client, [TopicId | TopicIds], Ret) ->
   end.
 
 -spec get_msg(client()) -> {ok, dict:dict(topic_id(), [string()])} | invalid.
-get_msg(#client{state_m = StateM} = Client) ->
-  State = gen_statem:call(StateM, get_state),
+get_msg(Client) ->
+  State = gen_statem:call(Client, get_state),
   #state{msg_manager = MsgManager} = State,
   get_msg(Client, dict:fetch_keys(MsgManager)).
 
 -spec get_all_topic_id(client()) -> [topic_id()].
-get_all_topic_id(#client{state_m = StateM}) ->
-  State = gen_statem:call(StateM, get_state),
+get_all_topic_id(Client) ->
+  State = gen_statem:call(Client, get_state),
   #state{msg_manager = MsgManager} = State,
   dict:fetch_keys(MsgManager).
 
 -spec get_topic_id_from_name(client(), string(), boolean()) -> {ok, topic_id()} | none.
-get_topic_id_from_name(#client{state_m = StateM} = Client, TopicName, Block) ->
-  State = gen_statem:call(StateM, get_state),
+get_topic_id_from_name(Client, TopicName, Block) ->
+  State = gen_statem:call(Client, get_state),
   #state{topic_name_id = Map} = State,
   case {Block, dict:find(TopicName, Map)} of
-    {false, Ret} -> Ret;
-    {true, {ok, TopicId}} -> {ok, TopicId};
-    {true, error} -> get_topic_id_from_name(Client, TopicName, true)
+    {false, Ret} ->
+      Ret;
+    {true, {ok, TopicId}} ->
+      {ok, TopicId};
+    {true, error} ->
+      get_topic_id_from_name(Client, TopicName, true)
   end.
 
 %%--------------------------------------------------------------------
@@ -228,14 +237,23 @@ next_gw(TableName, GWId) ->
 %% packet_id generator for state machine
 %%--------------------------------------------------------------------
 
--spec prev_packet_id(packet_id()) -> packet_id().
-prev_packet_id(1) ->
-  ?MAX_PACKET_ID;
-prev_packet_id(Id) ->
-  Id - 1.
-
 -spec next_packet_id(packet_id()) -> packet_id().
 next_packet_id(?MAX_PACKET_ID) ->
   1;
 next_packet_id(Id) ->
   Id + 1.
+
+-spec get_topic_id(topic_id_type(),
+                   topic_id() | string(),
+                   dict:dict(string(), topic_id())) ->
+                    topic_id().
+get_topic_id(TopicIdType, TopicIdOrName, NameMap) ->
+  case TopicIdType of
+    ?PRE_DEF_TOPIC_ID ->
+      TopicIdOrName;
+    ?TOPIC_ID ->
+      TopicIdOrName;
+    ?SHORT_TOPIC_NAME ->
+      dict:fetch(TopicIdOrName, NameMap)
+  end.
+

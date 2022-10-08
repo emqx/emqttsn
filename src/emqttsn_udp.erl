@@ -21,7 +21,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -export([init_port/1, init_port/0, connect/3, send/2, send_anywhere/4, broadcast/3,
-         recv/3]).
+  recv/1, recv/2]).
 
 %%------------------------------------------------------------------------------
 %% @doc Start ans store socket for given port
@@ -40,16 +40,16 @@ init_port(LocalPort) ->
       init_port()
   end.
 
--spec init_port() -> inet:socket() | {error, term()}.
+-spec init_port() -> {ok, inet:socket()} | {error, term()}.
 init_port() ->
   init_port(0).
 
 -spec connect(inet:socket(), host(), inet:port_number()) ->
-               inet:socket() | {error, term()}.
+               ok | {error, term()}.
 connect(Socket, Address, Port) ->
   case gen_udp:connect(Socket, Address, Port) of
     ok ->
-      Socket;
+      ok;
     {error, Reason} ->
       {error, Reason}
   end.
@@ -82,19 +82,25 @@ broadcast(Socket, Bin, RemotePort) ->
       {error, Reason}
   end.
 
-% parse and verify the length of packet
+-spec recv(inet:socket()) -> {ok, mqttsn_packet()} | udp_receive_timeout.
+recv(Socket) ->
+  recv(Socket, 2000).
 
--spec recv_packet(inet:socket(), pid()) -> ok.
-recv_packet(Socket, StateM) ->
+-spec recv(inet:socket(), pos_integer()) -> {ok, mqttsn_packet()} | udp_receive_timeout.
+recv(Socket, Timeout) ->
   receive
-    {udp, Socket, IP, InPortNo, Bin} -> 
-      gen_statem:cast(StateM, {recv, {IP, InPortNo, Bin}}),
-      ok;
-    _ ->
-      ok
+      {udp, Socket, _, _, Bin} ->
+          ?LOG_DEBUG("receive_response Bin=~p~n", [Bin]),
+          case emqttsn_frame:parse(Bin) of
+            {ok, Packet} ->
+              {ok, Packet};
+            {error, Reason} ->
+              ?LOG_WARNING("parse packet ~p failed: ~p",[Bin, Reason]),
+              recv(Socket, Timeout)
+          end;
+      Other ->
+          ?LOG_WARNING("receive_response() Other message: ~p", [{unexpected_udp_data, Other}]),
+          recv(Socket, Timeout)
+  after Timeout ->
+      udp_receive_timeout
   end.
-
--spec recv(inet:socket(), pid(), config()) -> no_return().
-recv(Socket, StateM, Config) ->
-  recv_packet(Socket, StateM),
-  recv(Socket, StateM, Config).

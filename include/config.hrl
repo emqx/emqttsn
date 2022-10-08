@@ -49,7 +49,7 @@
          sleep_interval = ?DEFAULT_SLEEP_INTERVAL :: non_neg_integer(),
          msg_handler = [fun emqttsn_utils:default_msg_handler/2] :: [msg_handler()],
          %local config
-         send_port = ?DEFAULT_PORT :: inet:port_number(),
+         send_port = 0 :: inet:port_number(),
          % protocol config
          client_id = ?CLIENT_ID :: string(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
@@ -104,8 +104,8 @@
          next_packet_id = 0 :: non_neg_integer(),
          msg_manager = dict:new() :: dict:dict(topic_id(), queue:queue()),
          msg_counter = dict:new() :: dict:dict(topic_id(), non_neg_integer()),
-         topic_id_name = dict:new() :: dict:dict(topic_id(), bitstring()),
-         topic_name_id = dict:new() :: dict:dict(bitstring(), topic_id()),
+         topic_id_name = dict:new() :: dict:dict(topic_id(), string()),
+         topic_name_id = dict:new() :: dict:dict(string(), topic_id()),
          topic_id_use_qos = dict:new() :: dict:dict(topic_id(), qos()),
          active_gw = #gw_collect{} :: gw_collect(),
          gw_failed_cycle = 0 :: non_neg_integer()}).

@@ -4,7 +4,6 @@
 
 -include("packet.hrl").
 -include("config.hrl").
--include_lib("eunit/include/eunit.hrl").
 
 %% API
 -export([send_connect/6, send_willtopic/5, send_willmsg/3, send_register/4, send_regack/5,
@@ -22,7 +21,6 @@
 send_connect(Config, Socket, Will, CleanSession, Duration, ClientId) ->
   Packet = ?CONNECT_PACKET(Will, CleanSession, Duration, ClientId),
   Bin = emqttsn_frame:serialize(Packet, Config),
-  ?debugFmt("~p", [Bin]),
   emqttsn_udp:send(Socket, Bin).
 
 -spec send_willtopic(config(), inet:socket(), qos(), boolean(), string()) -> ok | {error, term()}.
@@ -61,7 +59,7 @@ send_regack(Config, Socket, TopicId, PacketId, ReturnCode) ->
 send_subscribe(Config, Socket, Dup, TopicIdType, PacketId, TopicIdOrName, MaxQos) ->
   Packet =
     case TopicIdType of
-      ?PRE_DEF_TOPIC_ID ->
+      ?SHORT_TOPIC_NAME ->
         ?SUBSCRIBE_PACKET(Dup, PacketId, TopicIdOrName, MaxQos);
       _ ->
         ?SUBSCRIBE_PACKET(Dup, TopicIdType, PacketId, TopicIdOrName, MaxQos)
@@ -190,3 +188,4 @@ broadcast_searchgw(Config, Socket, RemotePort, Radius) ->
   Packet = ?SEARCHGW_PACKET(Radius),
   Bin = emqttsn_frame:serialize(Packet, Config),
   emqttsn_udp:broadcast(Socket, Bin, RemotePort).
+

@@ -126,17 +126,29 @@ parse_payload(<<TopicId:16/integer, MsgId:16/integer, ReturnCode:8/integer>>,
   #mqttsn_packet_regack{topic_id = TopicId,
                         packet_id = MsgId,
                         return_code = ReturnCode};
-parse_payload(<<Flag:1/binary,
-                TopicId:16/integer,
+parse_payload(<<SerFlag:1/binary,
+                TopicIdOrName:2/binary,
                 MsgId:16/integer,
                 MessageBin/bitstring>>,
               #mqttsn_packet_header{type = ?PUBLISH},
               Config) ->
   Message = binary_to_list(MessageBin),
-  #mqttsn_packet_publish{flag = parse_flag(Flag, Config),
-                         topic_id = TopicId,
-                         packet_id = MsgId,
-                         message = Message};
+  Flag = parse_flag(SerFlag, Config),
+  #mqttsn_packet_flag{topic_id_type = TopicIdType} = Flag,
+  case TopicIdType of
+    ?SHORT_TOPIC_NAME ->
+      #mqttsn_packet_publish{
+        flag = Flag,               
+        topic_id_or_name = binary_to_list(TopicIdOrName),        
+        packet_id = MsgId,             
+        message = Message};
+    _ ->
+      #mqttsn_packet_publish{
+        flag = Flag,
+        topic_id_or_name = binary_to_integer(TopicIdOrName),
+        packet_id = MsgId,
+        message = Message}
+  end;
 parse_payload(<<TopicId:16/integer, MsgId:16/integer, ReturnCode:8/integer>>,
               #mqttsn_packet_header{type = ?PUBACK},
               _Config) ->
@@ -308,14 +320,22 @@ serialize_payload(#mqttsn_packet_regack{topic_id = TopicId,
                   _Config) ->
   <<TopicId:16/integer, MsgId:16/integer, 8/integer>>;
 serialize_payload(#mqttsn_packet_publish{flag = Flag,
-                                         topic_id = TopicId,
+                                         topic_id_or_name = TopicIdOrName,
                                          packet_id = MsgId,
                                          message = Message},
                   Config) ->
   MessageBin = list_to_binary(Message),
   SerFlag = serialize_flag(Flag, Config),
-
-  <<SerFlag:1/binary, TopicId:16/integer, MsgId:16/integer, MessageBin/binary>>;
+  #mqttsn_packet_flag{topic_id_type = TopicIdType} = Flag,
+  case TopicIdType of
+    ?SHORT_TOPIC_NAME ->
+      TopicNameBin = list_to_binary(TopicIdOrName),
+      <<SerFlag:1/binary, TopicNameBin:2/binary, MsgId:16/integer, MessageBin/binary>>;
+    _ ->
+      TopicId = TopicIdOrName,
+      <<SerFlag:1/binary, TopicId:16/integer, MsgId:16/integer, MessageBin/binary>>
+  end;
+  
 serialize_payload(#mqttsn_packet_puback{topic_id = TopicId,
                                         packet_id = MsgId,
                                         return_code = ReturnCode},

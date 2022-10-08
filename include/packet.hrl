@@ -27,9 +27,7 @@
 
 -define(CLIENT_ID, "client").
 
--record(client, {state_m :: pid(), receiver :: pid()}).
-
--type client() :: #client{}.
+-type client() :: pid().
 
 %%%--------------------------------------------------------------------
 %% Maximum ClientId Length.
@@ -210,7 +208,7 @@
         {topic_id :: topic_id(), packet_id :: packet_id(), return_code :: return_code()}).
 -record(mqttsn_packet_publish,
         {flag :: #mqttsn_packet_flag{},
-         topic_id :: topic_id(),
+         topic_id_or_name :: topic_id() | string(),
          packet_id :: packet_id(),
          message :: string()}).
 -record(mqttsn_packet_puback,
@@ -348,7 +346,7 @@
                                                               #mqttsn_packet_flag{qos = ?QOS_neg,
                                                                                   topic_id_type =
                                                                                           TopicIdType},
-                                                      topic_id = TopicIdOrName,
+                                                      topic_id_or_name = TopicIdOrName,
                                                       packet_id = 0,
                                                       message = Message}}).
 -define(PUBLISH_PACKET(Dup, Retain, TopicIdType, TopicIdOrName, Message),
@@ -360,19 +358,18 @@
                                                                                   retain = Retain,
                                                                                   topic_id_type =
                                                                                           TopicIdType},
-                                                      topic_id = TopicIdOrName,
+                                                      topic_id_or_name = TopicIdOrName,
                                                       packet_id = 0,
                                                       message = Message}}).
 -define(PUBLISH_PACKET(Dup, Qos, Retain, TopicIdType, TopicIdOrName, PacketId, Message),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBLISH},
                        payload =
-                               #mqttsn_packet_publish{flag =
-                                                              #mqttsn_packet_flag{dup = Dup,
+                               #mqttsn_packet_publish{flag = #mqttsn_packet_flag{dup = Dup,
                                                                                   qos = Qos,
                                                                                   retain = Retain,
                                                                                   topic_id_type =
                                                                                           TopicIdType},
-                                                      topic_id = TopicIdOrName,
+                                                      topic_id_or_name = TopicIdOrName,
                                                       packet_id = PacketId,
                                                       message = Message}}).
 -define(PUBACK_PACKET(TopicId, PacketId, ReturnCode),

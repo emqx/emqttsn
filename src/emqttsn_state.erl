@@ -6,7 +6,7 @@
 -include("logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--import(emqttsn_utils, [next_packet_id/1, prev_packet_id/1]).
+-import(emqttsn_utils, [next_packet_id/1]).
 
 -export([init/1, callback_mode/0, start_link/2, handle_event/4]).
 
@@ -82,7 +82,7 @@ handle_event(state_timeout, {}, initialized, State = #state{config = Config}) ->
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, {?ADVERTISE_PACKET(GateWayId, _Duration), Host, Port},
-             initialized, State = #state{name = Name}) ->
+             _StateName, State = #state{name = Name}) ->
   ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast ADVERTISE packet",
              [GateWayId, Host, Port], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = Host,
@@ -99,7 +99,7 @@ handle_event(cast, {?ADVERTISE_PACKET(GateWayId, _Duration), Host, Port},
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, {?GWINFO_PACKET(GateWayId), Host, Port},
-             initialized, State = #state{name = Name}) ->
+             _StateName, State = #state{name = Name}) ->
   ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast GWINFO packet by gateway",
               [GateWayId, Host, Port], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = Host,
@@ -117,7 +117,7 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId), Host, Port},
 %% @end
 %%------------------------------------------------------------------------------
 handle_event(cast, {?GWINFO_PACKET(GateWayId, GateWayAdd), _Host, _Port},
-             initialized, State = #state{name = Name}) ->
+             _StateName, State = #state{name = Name}) ->
   ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast GWINFO packet by client",
               [GateWayId, GateWayAdd, ?DEFAULT_PORT], State),
   emqttsn_utils:store_gw(Name, #gw_info{id = GateWayId, host = GateWayAdd,
@@ -134,7 +134,7 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId, GateWayAdd), _Host, _Port},
 %% @see gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
-handle_event(cast, {add_gw, Host, Port, GateWayId}, initialized,
+handle_event(cast, {add_gw, Host, Port, GateWayId}, _StateName,
              State = #state{name = Name}) ->
   ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from manual add",
               [GateWayId, Host, Port], State),
@@ -340,7 +340,7 @@ handle_event(state_timeout, {PacketId, TopicName, ResendTimes}, wait_reg,
   
   if
     WhetherResend andalso ResendTimes < MaxResend ->
-      emqttsn_send:send_register(Config, Socket, prev_packet_id(PacketId), TopicName),
+      emqttsn_send:send_register(Config, Socket, PacketId, TopicName),
       {keep_state, State#state{next_packet_id = PacketId,
                                waiting_data = {reg, TopicName}},
        {timeout, AckTimeout, {PacketId, TopicName, ResendTimes + 1}}};
@@ -369,28 +369,31 @@ handle_event(cast,
             packet: ~p, topic: ~p, return_code: ~p, qos: ~p",
             [RemotePacketId, TopicIdOrName, ReturnCode, GrantQos], State),
   #config{recv_qos = LocalQos} = Config,
-  if ReturnCode =/= ?RC_ACCEPTED
-    -> ?LOG_STATE(error, "failed for subscribe response, return_code: ~p",
-                  [ReturnCode], State)
-  end,
-  Qos = min(GrantQos, LocalQos),
-  NewQosMap = dict:store(RemoteTopicId, Qos, QosMap),
-  case TopicIdType of
-    ?SHORT_TOPIC_NAME ->
-      NewIdMap = dict:store(RemoteTopicId, TopicIdOrName, IdMap),
-      NewNameMap = dict:store(TopicIdOrName, RemoteTopicId, NameMap),
-    {next_state, connected,
-   State#state{next_packet_id = next_packet_id(LocalPacketId),
-               waiting_data = {}, topic_id_name = NewIdMap,
-               topic_name_id = NewNameMap, topic_id_use_qos = NewQosMap}};
-    _ ->
-      ?assertEqual(RemoteTopicId, TopicIdOrName),
+  case ReturnCode of
+    ?RC_ACCEPTED -> 
+      Qos = min(GrantQos, LocalQos),
+      NewQosMap = dict:store(RemoteTopicId, Qos, QosMap),
+      case TopicIdType of
+        ?SHORT_TOPIC_NAME ->
+          NewIdMap = dict:store(RemoteTopicId, TopicIdOrName, IdMap),
+          NewNameMap = dict:store(TopicIdOrName, RemoteTopicId, NameMap),
+          {next_state, connected,
+           State#state{next_packet_id = next_packet_id(LocalPacketId),
+                  waiting_data = {}, topic_id_name = NewIdMap,
+                  topic_name_id = NewNameMap, topic_id_use_qos = NewQosMap}};
+        _ ->
+          ?assertEqual(RemoteTopicId, TopicIdOrName),
+          {next_state, connected,
+           State#state{next_packet_id = next_packet_id(LocalPacketId),
+                  waiting_data = {}, topic_id_use_qos = NewQosMap}}
+      end;
+    _ -> 
+      ?LOG_STATE(error, "failed for subscribe response, return_code: ~p",
+                    [ReturnCode], State),
       {next_state, connected,
-   State#state{next_packet_id = next_packet_id(LocalPacketId),
-               waiting_data = {}, topic_id_name = IdMap,
-               topic_name_id = NameMap, topic_id_use_qos = NewQosMap}}
-  end;
-  
+       State#state{next_packet_id = next_packet_id(LocalPacketId),
+                   waiting_data = {}}}
+    end;
 
 %%------------------------------------------------------------------------------
 %% @doc Answer for subscribe request is timeout and retry subscribe
@@ -415,7 +418,7 @@ handle_event(state_timeout, {ResendTimes}, wait_sub,
   if
     WhetherResend andalso ResendTimes < MaxResend ->
       emqttsn_send:send_subscribe(Config, Socket, true, TopicIdType,
-                                  prev_packet_id(PacketId), TopicIdOrName, MaxQos),
+                                  PacketId, TopicIdOrName, MaxQos),
       {keep_state,
        State#state{next_packet_id = PacketId,
                    waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}},
@@ -490,7 +493,7 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos1,
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_publish(Config, Socket, ?QOS_1, ?DUP_TRUE, Retain, TopicIdType,
-                                TopicIdOrName, prev_packet_id(PacketId), Message),
+                                TopicIdOrName, PacketId, Message),
       {keep_state, State#state{next_packet_id = PacketId,
                                waiting_data = {pub, ?QOS_1, TopicIdType,
                                                TopicIdOrName, Message}},
@@ -518,11 +521,7 @@ handle_event(cast, ?PUBREC_PACKET(RemotePacketId), wait_pub_qos2,
   when RemotePacketId == LocalPacketId ->
   ?LOG_STATE(debug, "Continue publish request part 2, packet id: ~p",
              [RemotePacketId], State),
-  TopicId = case TopicIdType of
-              ?PRE_DEF_TOPIC_ID -> TopicIdOrName;
-              ?TOPIC_ID -> TopicIdOrName;
-              ?SHORT_TOPIC_NAME -> dict:fetch(TopicIdOrName, NameMap)
-            end,
+  TopicId = emqttsn_utils:get_topic_id(TopicIdType, TopicIdOrName, NameMap),
   #config{ack_timeout = AckTimeout,
           max_message_each_topic = TopicMaxMsg} = Config,
   NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
@@ -611,7 +610,7 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrel_qos2,
   
   if
     ResendTimes < MaxResend ->
-      emqttsn_send:send_pubrec(Config, Socket, prev_packet_id(PacketId)),
+      emqttsn_send:send_pubrec(Config, Socket, PacketId),
       {keep_state,
        State#state{next_packet_id = PacketId,
                    waiting_data = {pubrel, ?QOS_2}},
@@ -665,7 +664,7 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrec_qos2,
   
   if
     ResendTimes < MaxResend ->
-      emqttsn_send:send_pubrec(Config, Socket, prev_packet_id(PacketId)),
+      emqttsn_send:send_pubrec(Config, Socket, PacketId),
       {keep_state, State#state{next_packet_id = PacketId},
        {timeout, AckTimeout, {ResendTimes + 1}}};
     ResendTimes >= MaxResend ->
@@ -731,8 +730,7 @@ handle_event(cast, {reg, TopicName}, connected,
   #config{ack_timeout = AckTimeout} = Config,
   emqttsn_send:send_register(Config, Socket, PacketId, TopicName),
   {next_state, wait_reg,
-   State#state{next_packet_id = next_packet_id(PacketId),
-               waiting_data = {reg, TopicName}},
+   State#state{waiting_data = {reg, TopicName}},
    {timeout, AckTimeout, {PacketId, TopicName, ?RESEND_TIME_BEG}}};
 
 %%------------------------------------------------------------------------------
@@ -752,8 +750,7 @@ handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
              [TopicIdType, TopicIdOrName], State),
   #config{ack_timeout = AckTimeout} = Config,
   emqttsn_send:send_subscribe(Config, Socket, false, TopicIdType, PacketId, TopicIdOrName, MaxQos),
-  {next_state, wait_sub, State#state{next_packet_id = next_packet_id(PacketId),
-                                     waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}}, 
+  {next_state, wait_sub, State#state{waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}}, 
                                      {timeout, AckTimeout, {?RESEND_TIME_BEG}}};
 
 %%------------------------------------------------------------------------------
@@ -778,26 +775,20 @@ handle_event(cast, {pub, Retain, TopicIdType, TopicIdOrName, Message}, connected
     [TopicIdType, TopicIdOrName, Retain], State),
   #config{ack_timeout = AckTimeout,
           max_message_each_topic = TopicMaxMsg, pub_qos = Qos} = Config,
-  TopicId = case TopicIdType of
-              ?PRE_DEF_TOPIC_ID -> TopicIdOrName;
-              ?TOPIC_ID -> TopicIdOrName;
-              ?SHORT_TOPIC_NAME -> dict:fetch(TopicIdOrName, NameMap)
-            end,
+  TopicId = emqttsn_utils:get_topic_id(TopicIdType, TopicIdOrName, NameMap),
   emqttsn_send:send_publish(Config, Socket, Qos, ?DUP_FALSE, Retain,
                             TopicIdType, TopicIdOrName, PacketId, Message),
 
   case Qos of
     ?QOS_0 ->
       NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
-      {keep_state, NewState#state{next_packet_id = next_packet_id(PacketId)}};
+      {keep_state, NewState};
     ?QOS_1 -> {next_state, wait_pub_qos1,
-               State#state{next_packet_id = next_packet_id(PacketId),
-                           waiting_data = {pub, ?QOS_1, TopicIdType,
+               State#state{waiting_data = {pub, ?QOS_1, TopicIdType,
                                            TopicIdOrName, Message}},
                {timeout, AckTimeout, {Retain, ?RESEND_TIME_BEG}}};
     ?QOS_2 -> {next_state, wait_pub_qos2,
-               State#state{next_packet_id = next_packet_id(PacketId),
-                           waiting_data = {pub, ?QOS_2, TopicIdType,
+               State#state{waiting_data = {pub, ?QOS_2, TopicIdType,
                                            TopicIdOrName, Message}},
                {timeout, AckTimeout, {Retain, ?RESEND_TIME_BEG}}}
   end;
@@ -958,7 +949,7 @@ handle_event(state_timeout, ping, asleep, State = #state{config = Config, socket
 %%------------------------------------------------------------------------------
 handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetain,
                                             _TopicIdType, _TopicId, _PacketId,
-                                            _Data), awake, State) ->
+                                            _Message), awake, State) ->
   ?LOG_STATE(debug, "Receive publish request from other clients", [], State),
   recv_publish(Packet, State, awake);
 
@@ -1138,7 +1129,7 @@ handle_event(cast, {config, Config}, _StateName, State) ->
 %-------------------------------------------------------------------------------
 
 %%------------------------------------------------------------------------------
-%% @doc Change config of client
+%% @doc Get State data of client
 %%
 %% state  : keep Any
 %% trigger: manual call
@@ -1149,6 +1140,21 @@ handle_event(cast, {config, Config}, _StateName, State) ->
 handle_event({call, From}, get_state, _StateName, State) ->
   ?LOG_STATE(debug, "Get state", [], State),
   gen_statem:reply(From, State),
+  {keep_state, State};
+
+  
+%%------------------------------------------------------------------------------
+%% @doc Get State name of client
+%%
+%% state  : keep Any
+%% trigger: manual call
+
+%% @see gen_statem for state machine
+%% @end
+%%------------------------------------------------------------------------------
+handle_event({call, From}, get_state_name, StateName, State) ->
+  ?LOG_STATE(debug, "Get state name", [], State),
+  gen_statem:reply(From, StateName),
   {keep_state, State};
 
 %-------------------------------------------------------------------------------
@@ -1192,6 +1198,11 @@ when Socket =:= SelfSocket ->
 handle_event(info,{udp_error, _Socket, Reason}, _StateName, State) ->
   ?LOG_STATE(debug, "recv failed for reason: ~p",
              [Reason], State),
+  {keep_state, State};
+
+handle_event(enter, Args, StateName, State) ->
+  ?LOG_DEBUG("useless enter with ~p at ~p",
+             [Args, StateName]),
   {keep_state, State};
 
 handle_event(Operation, Args, StateName, State) ->
@@ -1241,11 +1252,13 @@ process_incoming({Host, Port, Bin},
 %% @doc Shared processing method for publish packet
 %% @end
 %%------------------------------------------------------------------------------
+
 -spec recv_publish(mqttsn_packet(), state(), connected | awake) -> gen_statem:event_handler_result(state()).
-recv_publish(?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetain, _TopicIdType, TopicId, PacketId, Message),
-    State = #state{next_packet_id = PacketId, topic_id_use_qos = QosMap,
-                   config = Config, socket = Socket}, FromStateName) ->
+recv_publish(?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetain, TopicIdType, TopicIdOrName, PacketId, Message),
+    State = #state{topic_id_use_qos = QosMap, config = Config, socket = Socket, topic_name_id = NameMap}, FromStateName) ->
+  
   #config{ack_timeout = AckTimeout, max_message_each_topic = TopicMaxMsg} = Config,
+  TopicId = emqttsn_utils:get_topic_id(TopicIdType, TopicIdOrName, NameMap),
   Qos = dict:fetch(TopicId, QosMap),
   NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
   case Qos of
@@ -1253,10 +1266,10 @@ recv_publish(?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetain, _TopicIdType
       {keep_state, NewState#state{next_packet_id = next_packet_id(PacketId)}};
     ?QOS_1 -> 
       emqttsn_send:send_puback(Config, Socket, TopicId, PacketId, ?RC_ACCEPTED),
-      {keep_state, NewState#state{next_packet_id = next_packet_id(PacketId)}};
+      {keep_state, NewState#state{next_packet_id = PacketId}};
     ?QOS_2 -> 
       emqttsn_send:send_pubrec(Config, Socket, PacketId),
       {next_state, wait_pubrec_qos2,
-               NewState#state{next_packet_id = next_packet_id(PacketId), waiting_data = {FromStateName}},
+               NewState#state{next_packet_id = PacketId, waiting_data = {FromStateName}},
                {timeout, AckTimeout, {?RESEND_TIME_BEG}}}
   end.

@@ -3,13 +3,13 @@
 -include("config.hrl").
 -include("packet.hrl").
 -include("logger.hrl").
+
 -include_lib("stdlib/include/assert.hrl").
 
--export([start_link/2, register/2, subscribe/4, publish/5, add_host/4, connect/2,
-         get_state/1, reset_config/2, stop/1]).
+-export([start_link/2, register/3, subscribe/5, publish/6, add_host/4, connect/3,
+         get_state/1, reset_config/2, stop/1, disconnect/1]).
 
 -export_type([client/0]).
-
 
 -spec merge_opt(#config{}, [option()]) -> #config{}.
 merge_opt(Config, [{strict_mode, Value} | Options]) ->
@@ -85,42 +85,89 @@ start_link(Name, Option) ->
           ?LOG(error, "gen_statem init failed", #{reason => Reason}),
           {error, Reason};
         {ok, StateM} ->
-          Receiver = spawn(emqttsn_udp, recv, [Socket, StateM, Config]),
-          {ok, Socket, #client{state_m = StateM, receiver = Receiver}, Config}
+          {ok, Socket, StateM, Config}
       end
   end.
 
--spec register(client(), string()) -> ok.
-register(#client{state_m = StateM}, TopicName) ->
-  gen_statem:cast(StateM, {reg, TopicName}).
+-spec wait_until_state_name(client(), [atom()], boolean()) -> ok.
+wait_until_state_name(Client, StateNames, Block) ->
+  case {Block, get_state_name(Client)} of
+    {false, _} ->
+      ok;
+    {true, S} ->
+      case lists:member(S, StateNames) of
+        true ->
+          ok;
+        false ->
+          wait_until_state_name(Client, StateNames, true)
+      end
+  end.
 
--spec subscribe(client(), topic_id_type(), topic_id_or_name(), qos()) -> ok.
-subscribe(#client{state_m = StateM}, TopicIdType, TopicIdOrName, MaxQos) ->
-  gen_statem:cast(StateM, {sub, TopicIdType, TopicIdOrName, MaxQos}).
+-spec register(client(), string(), boolean()) -> ok.
+register(Client, TopicName, Block) ->
+  gen_statem:cast(Client, {reg, TopicName}),
+  wait_until_state_name(Client, [connected], Block).
 
--spec publish(client(), boolean(), topic_id_type(), topic_id_or_name(), string()) -> ok.
-publish(#client{state_m = StateM}, Retain, TopicIdType, TopicIdOrName, Message) ->
-  gen_statem:cast(StateM, {pub, Retain, TopicIdType, TopicIdOrName, Message}).
+-spec subscribe(client(), topic_id_type(), topic_id_or_name(), qos(), boolean()) -> ok.
+subscribe(Client,
+          TopicIdType,
+          TopicIdOrName,
+          MaxQos,
+          Block) ->
+  gen_statem:cast(Client, {sub, TopicIdType, TopicIdOrName, MaxQos}),
+  wait_until_state_name(Client, [connected], Block).
+
+-spec publish(client(),
+              boolean(),
+              topic_id_type(),
+              topic_id_or_name(),
+              string(),
+              boolean()) ->
+               ok.
+publish(Client,
+        Retain,
+        TopicIdType,
+        TopicIdOrName,
+        Message,
+        Block) ->
+  gen_statem:cast(Client, {pub, Retain, TopicIdType, TopicIdOrName, Message}),
+  wait_until_state_name(Client, [connected], Block).
 
 -spec add_host(client(), host(), port(), gw_id()) -> ok.
-add_host(#client{state_m = StateM}, Host, Port, GateWayId) ->
-  gen_statem:cast(StateM, {add_gw, Host, Port, GateWayId}).
+add_host(Client, Host, Port, GateWayId) ->
+  gen_statem:cast(Client, {add_gw, Host, Port, GateWayId}).
 
--spec connect(client(), gw_id()) -> ok.
-connect(#client{state_m = StateM}, GateWayId) ->
-  gen_statem:cast(StateM, {connect, GateWayId}).
+-spec connect(client(), gw_id(), boolean()) -> ok.
+connect(Client, GateWayId, Block) ->
+  gen_statem:cast(Client, {connect, GateWayId}),
+  wait_until_state_name(Client, [connected], Block).
+
+-spec disconnect(client()) -> ok.
+disconnect(Client) ->
+  gen_statem:cast(Client, disconnect).
 
 -spec get_state(client()) -> state().
-get_state(#client{state_m = StateM}) ->
-  State = gen_statem:call(StateM, get_state),
+get_state(Client) ->
+  State = gen_statem:call(Client, get_state),
   State.
 
+-spec get_state_name(client()) -> state().
+get_state_name(Client) ->
+  StateName = gen_statem:call(Client, get_state_name),
+  StateName.
+
 -spec reset_config(client(), #config{}) -> ok.
-reset_config(#client{state_m = StateM}, Config) ->
-  gen_statem:cast(StateM, {config, Config}).
+reset_config(Client, Config) ->
+  gen_statem:cast(Client, {config, Config}).
 
 -spec stop(client()) -> ok.
 stop(Client) ->
-  #client{state_m = StateM, receiver = Receiver} = Client,
-  gen_statem:stop(StateM),
-  exit(Receiver).
+  StateName = get_state(Client),
+  if StateName =/= initialized andalso StateName =/= found ->
+      disconnect(Client),
+      gen_statem:stop(Client);
+    StateName =:= initialized orelse StateName =:= found ->
+      gen_statem:stop(Client)
+    end,
+  ok.
+  
