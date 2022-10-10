@@ -415,7 +415,7 @@
                                                      packet_id = PacketId,
                                                      return_code = ReturnCode}}).
 -define(UNSUBSCRIBE_PACKET(PacketId, TopicName),
-        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?UNSUBSCRIBE},
                        payload =
                                #mqttsn_packet_unsubscribe{flag =
                                                                   #mqttsn_packet_flag{topic_id_type
@@ -424,7 +424,7 @@
                                                           packet_id = PacketId,
                                                           topic_name = TopicName}}).
 -define(UNSUBSCRIBE_PACKET(TopicIdTypeNotName, PacketId, TopicId),
-        #mqttsn_packet{header = #mqttsn_packet_header{type = ?SUBSCRIBE},
+        #mqttsn_packet{header = #mqttsn_packet_header{type = ?UNSUBSCRIBE},
                        payload =
                                #mqttsn_packet_unsubscribe{flag =
                                                                   #mqttsn_packet_flag{topic_id_type

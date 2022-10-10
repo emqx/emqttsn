@@ -7,9 +7,9 @@
 
 %% API
 -export([send_connect/6, send_willtopic/5, send_willmsg/3, send_register/4, send_regack/5,
-         send_subscribe/7, send_publish/9, send_puback/5, send_pubrel/3, send_pubrec/3,
-         send_pubcomp/3, send_pub_any/7, send_gwinfo/7, send_disconnect/2, send_asleep/3,
-         send_awake/3, send_pingreq/2, send_pingresp/2, broadcast_searchgw/4]).
+         send_subscribe/7, send_unsubscribe/5, send_publish/9, send_puback/5, send_pubrel/3, 
+         send_pubrec/3, send_pubcomp/3, send_pub_any/7, send_gwinfo/7, send_disconnect/2, 
+         send_asleep/3, send_awake/3, send_pingreq/2, send_pingresp/2, broadcast_searchgw/4]).
 
 -spec send_connect(config(),
                    inet:socket(),
@@ -63,6 +63,23 @@ send_subscribe(Config, Socket, Dup, TopicIdType, PacketId, TopicIdOrName, MaxQos
         ?SUBSCRIBE_PACKET(Dup, PacketId, TopicIdOrName, MaxQos);
       _ ->
         ?SUBSCRIBE_PACKET(Dup, TopicIdType, PacketId, TopicIdOrName, MaxQos)
+    end,
+  Bin = emqttsn_frame:serialize(Packet, Config),
+  emqttsn_udp:send(Socket, Bin).
+
+-spec send_unsubscribe(config(),
+                     inet:socket(),
+                     topic_id_type(),
+                     packet_id(),
+                     topic_id_or_name()) ->
+                      ok | {error, term()}.
+send_unsubscribe(Config, Socket, TopicIdType, PacketId, TopicIdOrName) ->
+  Packet =
+    case TopicIdType of
+      ?SHORT_TOPIC_NAME ->
+        ?UNSUBSCRIBE_PACKET(PacketId, TopicIdOrName);
+      _ ->
+        ?UNSUBSCRIBE_PACKET(TopicIdOrName, PacketId, TopicIdOrName)
     end,
   Bin = emqttsn_frame:serialize(Packet, Config),
   emqttsn_udp:send(Socket, Bin).
@@ -161,7 +178,7 @@ send_asleep(Config, Socket, Duration) ->
   Bin = emqttsn_frame:serialize(Packet, Config),
   emqttsn_udp:send(Socket, Bin).
 
--spec send_awake(config(), inet:socket(), bin_1_byte()) -> ok | {error, term()}.
+-spec send_awake(config(), inet:socket(), string()) -> ok | {error, term()}.
 send_awake(Config, Socket, ClientId) ->
   Packet = ?PINGREQ_PACKET(ClientId),
   Bin = emqttsn_frame:serialize(Packet, Config),

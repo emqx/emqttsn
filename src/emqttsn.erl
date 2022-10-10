@@ -6,8 +6,8 @@
 
 -include_lib("stdlib/include/assert.hrl").
 
--export([start_link/2, register/3, subscribe/5, publish/6, add_host/4, connect/3,
-         get_state/1, reset_config/2, stop/1, disconnect/1]).
+-export([start_link/2, register/3, subscribe/5, unsubscribe/4, publish/6, add_host/4,
+         connect/3, sleep/2, get_state/1, get_state_name/1, reset_config/2, stop/1, disconnect/1]).
 
 -export_type([client/0]).
 
@@ -38,8 +38,6 @@ merge_opt(Config, [{reconnect_max_times, Value} | Options]) ->
   merge_opt(Config#config{reconnect_max_times = Value}, Options);
 merge_opt(Config, [{max_message_each_topic, Value} | Options]) ->
   merge_opt(Config#config{max_message_each_topic = Value}, Options);
-merge_opt(Config, [{sleep_interval, Value} | Options]) ->
-  merge_opt(Config#config{sleep_interval = Value}, Options);
 merge_opt(Config, [{msg_handler, Value} | Options]) ->
   merge_opt(Config#config{msg_handler = Value}, Options);
 merge_opt(Config, [{send_port, Value} | Options]) ->
@@ -109,12 +107,13 @@ register(Client, TopicName, Block) ->
   wait_until_state_name(Client, [connected], Block).
 
 -spec subscribe(client(), topic_id_type(), topic_id_or_name(), qos(), boolean()) -> ok.
-subscribe(Client,
-          TopicIdType,
-          TopicIdOrName,
-          MaxQos,
-          Block) ->
+subscribe(Client, TopicIdType, TopicIdOrName, MaxQos, Block) ->
   gen_statem:cast(Client, {sub, TopicIdType, TopicIdOrName, MaxQos}),
+  wait_until_state_name(Client, [connected], Block).
+
+-spec unsubscribe(client(), topic_id_type(), topic_id_or_name(), boolean()) -> ok.
+unsubscribe(Client, TopicIdType, TopicIdOrName, Block) ->
+  gen_statem:cast(Client, {unsub, TopicIdType, TopicIdOrName}),
   wait_until_state_name(Client, [connected], Block).
 
 -spec publish(client(),
@@ -124,12 +123,7 @@ subscribe(Client,
               string(),
               boolean()) ->
                ok.
-publish(Client,
-        Retain,
-        TopicIdType,
-        TopicIdOrName,
-        Message,
-        Block) ->
+publish(Client, Retain, TopicIdType, TopicIdOrName, Message, Block) ->
   gen_statem:cast(Client, {pub, Retain, TopicIdType, TopicIdOrName, Message}),
   wait_until_state_name(Client, [connected], Block).
 
@@ -142,6 +136,10 @@ connect(Client, GateWayId, Block) ->
   gen_statem:cast(Client, {connect, GateWayId}),
   wait_until_state_name(Client, [connected], Block).
 
+-spec sleep(client(), pos_integer()) -> ok.
+sleep(Client, Interval) ->
+  gen_statem:cast(Client, {sleep, Interval}).
+
 -spec disconnect(client()) -> ok.
 disconnect(Client) ->
   gen_statem:cast(Client, disconnect).
@@ -151,7 +149,7 @@ get_state(Client) ->
   State = gen_statem:call(Client, get_state),
   State.
 
--spec get_state_name(client()) -> state().
+-spec get_state_name(client()) -> atom().
 get_state_name(Client) ->
   StateName = gen_statem:call(Client, get_state_name),
   StateName.
@@ -164,10 +162,9 @@ reset_config(Client, Config) ->
 stop(Client) ->
   StateName = get_state(Client),
   if StateName =/= initialized andalso StateName =/= found ->
-      disconnect(Client),
-      gen_statem:stop(Client);
-    StateName =:= initialized orelse StateName =:= found ->
-      gen_statem:stop(Client)
-    end,
+       disconnect(Client),
+       gen_statem:stop(Client);
+     StateName =:= initialized orelse StateName =:= found ->
+       gen_statem:stop(Client)
+  end,
   ok.
-  

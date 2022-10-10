@@ -21,6 +21,6 @@
 -include_lib("kernel/include/logger.hrl").
 
 -define(LOG_STATE(Level, Data, Meta, State),
-  ?LOG(Level, Data ++ "\n~p", Meta ++ [State])).
+  ?LOG(Level, "[MQTTSN-CLI] " ++  Data ++ "\n~p", Meta ++ [State])).
 
 -endif.

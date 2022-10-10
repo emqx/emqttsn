@@ -5,7 +5,7 @@
 -include("version.hrl").
 -include("logger.hrl").
 
--export([next_packet_id/1, store_msg/4, get_msg/2, get_msg/1, get_one_msg/3,
+-export([next_packet_id/1, store_msg/4, get_msg/2, get_msg/1, get_one_topic_msg/3,
          get_topic_id/3, get_all_topic_id/1, get_topic_id_from_name/3, store_gw/2, get_gw/2,
          get_gw/1, first_gw/1, next_gw/2, default_msg_handler/2]).
 
@@ -102,8 +102,8 @@ store_msg(State, TopicId, TopicMax, Msg) ->
       State#state{msg_manager = MsgManager, msg_counter = MsgCounter}
   end.
 
--spec get_one_msg(client(), topic_id(), boolean()) -> {ok, [string()]} | invalid.
-get_one_msg(Client, TopicId, Block) ->
+-spec get_one_topic_msg(client(), topic_id(), boolean()) -> {ok, [string()]} | invalid.
+get_one_topic_msg(Client, TopicId, Block) ->
   State = gen_statem:call(Client, get_state),
   #state{msg_manager = MsgManager,
          msg_counter = MsgCounter,
@@ -120,7 +120,7 @@ get_one_msg(Client, TopicId, Block) ->
            gen_statem:cast(Client, {reset_msg, NewMsgManager, NewMsgCounter}),
            {ok, Messages};
          {true, []} ->
-           get_one_msg(Client, TopicId, true);
+          get_one_topic_msg(Client, TopicId, true);
          {true, _} ->
            gen_statem:cast(Client, {reset_msg, NewMsgManager, NewMsgCounter}),
            {ok, Messages}
@@ -138,7 +138,7 @@ get_msg(Client, TopicIds) ->
 get_msg(_Client, [], Ret) ->
   {ok, Ret};
 get_msg(Client, [TopicId | TopicIds], Ret) ->
-  case get_one_msg(Client, TopicId, false) of
+  case get_one_topic_msg(Client, TopicId, false) of
     invalid ->
       invalid;
     {ok, MsgOfTopicId} ->

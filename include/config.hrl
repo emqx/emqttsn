@@ -10,7 +10,6 @@
 -define(DEFAULT_ACK_TIMEOUT, 30000).
 -define(DEFAULT_CONNECT_TIMEOUT, 60000).
 -define(DEFAULT_SEARCH_GW_INTERVAL, 60000).
--define(DEFAULT_SLEEP_INTERVAL, 60000).
 -define(DEFAULT_PORT, 1884).
 -define(DEFAULT_RADIUS, 0).
 % TODO: check argument whether is right
@@ -28,7 +27,7 @@
         {resend_no_qos, boolean()} | {max_resend, non_neg_integer()} |
         {retry_interval, non_neg_integer()} | {connect_timeout, non_neg_integer()} |
         {search_gw_interval, non_neg_integer()} | {reconnect_max_times, non_neg_integer()} |
-        {max_message_each_topic, non_neg_integer()} | {sleep_interval, non_neg_integer()} |
+        {max_message_each_topic, non_neg_integer()}  |
         {msg_handler, [msg_handler()]} | {send_port, inet:port_number()} | {host, host()} |
         {port, inet:port_number()} | {client_id, bin_1_byte()} | {proto_ver, version()} |
         {proto_name, iodata()} | {radius, non_neg_integer()} | {duration, non_neg_integer()} |
@@ -46,7 +45,6 @@
          search_gw_interval = ?DEFAULT_SEARCH_GW_INTERVAL :: non_neg_integer(),
          reconnect_max_times = ?DEFAULT_MAX_RECONNECT :: non_neg_integer(),
          max_message_each_topic = 100 :: non_neg_integer(),
-         sleep_interval = ?DEFAULT_SLEEP_INTERVAL :: non_neg_integer(),
          msg_handler = [fun emqttsn_utils:default_msg_handler/2] :: [msg_handler()],
          %local config
          send_port = 0 :: inet:port_number(),

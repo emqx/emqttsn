@@ -28,6 +28,11 @@
   ?_assertEqual({ok, Packet}, emqttsn_frame:parse(Bin, #config{})),
   ?_assertEqual(Bin, emqttsn_frame:serialize(Packet, #config{}))).
 
+
+%%--------------------------------------------------------------------
+%% setups
+%%--------------------------------------------------------------------
+
 all() ->
   [t_parse_short_length, t_parse_long_length, t_parse_frame_too_large, t_serialize_parse_advertise, 
   t_serialize_parse_searchgw, t_serialize_parse_searchgw, t_serialize_parse_gwinfo_from_gateway, 
@@ -43,6 +48,10 @@ all() ->
   t_serialize_parse_willtopicupd_empty, t_serialize_parse_willtopicupd, t_serialize_parse_willmsgupd, 
   t_serialize_parse_willtopicresp, t_serialize_parse_willmsgresp
 ].
+
+%%--------------------------------------------------------------------
+%% tests
+%%--------------------------------------------------------------------
 
 t_parse_short_length(_Cfg) ->
   Packet = ?PINGRESP_PACKET(),
@@ -392,6 +401,10 @@ t_serialize_parse_willmsgresp(_Cfg) ->
   Packet = ?WILLMSGRESP_PACKET(ReturnCode),
 
   ?VALIDATE_SER_PAR(Bin, Packet).
+
+%%--------------------------------------------------------------------
+%% utils
+%%--------------------------------------------------------------------
 
 -spec payload_string(pos_integer()) -> string.
 payload_string(Len) ->
