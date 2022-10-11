@@ -60,18 +60,6 @@
 
 -record(msg_uid, {topic_id :: topic_id(), index :: non_neg_integer()}).
 
-%%-record(msg_store, {
-%%  uid :: #msg_uid{},
-%%  timestamp :: Timestamp :: timestamp(),
-%%  data :: bitstring()
-%%}).
-%%
-%%-record(msg_collect, {
-%%  topic_id :: topic_id(),
-%%  timestamp :: Timestamp :: timestamp(),
-%%  data :: bitstring()
-%%}).
-
 %%--------------------------------------------------------------------
 %% gateway address manager
 %%--------------------------------------------------------------------

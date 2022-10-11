@@ -35,7 +35,7 @@ init_global_store(TableName) ->
 
 -spec default_msg_handler(topic_id(), string()) -> ok.
 default_msg_handler(TopicId, Msg) ->
-  ?LOG(info, "new message", #{topic_id => TopicId, message => Msg}),
+  ?LOGP(notice, "new message: ~p, topic id: ~p", [TopicId, Msg]),
   ok.
 
 -spec msg_handler_recall([msg_handler()], topic_id(), string()) -> ok.
@@ -180,11 +180,11 @@ store_gw(TableName, GWInfo = #gw_info{id = GWId, from = SRC}) ->
   NameGW = table_format(TableName, gateway),
   case ets:lookup(NameGW, GWId) of
     [{_, #gw_info{from = OldSRC}}] when SRC < OldSRC ->
-      ?LOG_WARNING("insert into ~p for gateway id:~p failed", [TableName, GWId]),
+      ?LOGP(warning, "insert into ~p for gateway id:~p failed", [TableName, GWId]),
       false;
     [] ->
       ets:insert(NameGW, GWInfo),
-      ?LOG_NOTICE("insert into ~p for gateway id:~p", [TableName, GWId]),
+      ?LOGP(notice, "insert into ~p for gateway id:~p", [TableName, GWId]),
       true
   end.
 
@@ -195,7 +195,7 @@ get_gw(TableName, GWId) ->
     [GWInfo = #gw_info{}] ->
       GWInfo;
     [] ->
-      ?LOG_WARNING("not gateway to connect from ~p for selected gateway id:~p",
+      ?LOGP(warning, "not gateway to connect from ~p for selected gateway id:~p",
                    [TableName, GWId]),
       none
   end.

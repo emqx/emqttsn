@@ -2,6 +2,7 @@
 
 -include("version.hrl").
 -include("packet.hrl").
+-include("config.hrl").
 
 -export([main/1]).
 
@@ -9,39 +10,44 @@
 
 -type sub_cmd() :: pub | sub.
 
--define(CMD_NAME, "emqtt-sn").
+-define(CMD_NAME, "emqttsn").
 -define(HELP_OPT, [{help, undefined, "help", boolean, "Help information"}]).
 -define(CONN_SHORT_OPTS,
-        [{name, $n, "name", {string, "default"}, "client name(unique for each client)"},
-         {host, $h, "host", {string, "localhost"}, "mqtt-sn server hostname or IP address"},
-         {port, $p, "port", integer, "mqtt-sn server port number"},
+        [{name, $n, "name", {string, ?CLIENT_ID}, "client name(equal to client_id, unique for each client)"},
+         {host, $h, "host", {string, "127.0.0.1"}, "mqtt-sn server hostname or IP address"},
+         {port, $p, "port", {integer, 1884}, "mqtt-sn server port number"},
          {iface, $I, "iface", string, "specify the network interface or ip address to use"},
+         {will, $w, "will", {bool, false}, "whether the client need a will message"},
          {protocol_version,
           $V,
           "protocol-version",
           {atom, ?MQTTSN_PROTO_V1_2},
           "mqtt-sn protocol version: v1.2"},
-         {clientid, $C, "clientid", string, {atom, ?CLIENT_ID}, "client identifier"},
          {keepalive, $k, "keepalive", {integer, 300}, "keep alive in seconds"}]).
 -define(CONN_LONG_OPTS,
         [{will_topic, undefined, "will-topic", string, "Topic for will message"},
-         {will_payload, undefined, "will-payload", string, "Payload in will message"},
+         {will_msg, undefined, "will-message", string, "Payload in will message"},
          {will_qos, undefined, "will-qos", {integer, 0}, "QoS for will message"},
          {will_retain, undefined, "will-retain", {boolean, false}, "Retain in will message"}]).
 -define(PUB_OPTS,
         ?CONN_SHORT_OPTS
         ++ [{topic_id_type,
              $t,
-             "topic_type",
-             {atom, ?TOPIC_ID},
-             "mqtt topic name on which to publish the message(exclusive with "
-             "topic_id)"},
-            {topic_id_or_name,
+             "topic_id_type",
+             {integer, ?PRE_DEF_TOPIC_ID},
+             "mqtt topic id type(0 - topic id, 1 - predefined topic id, 2 - short topic name)"},
+            {topic_id,
              $i,
-             "topic_id_or_name",
-             string,
-             "mqtt topic id or name on which to publish the message(exclusive "
+             "topic_id",
+             integer,
+             "mqtt topic id on which to publish the message(exclusive "
              "with topic_name)"},
+             {topic_name,
+             $m,
+             "topic_name",
+             string,
+             "mqtt topic name on which to publish the message(exclusive "
+             "with topic_id)"},
             {qos,
              $q,
              "qos",
@@ -50,23 +56,30 @@
             {retain, $r, "retain", {boolean, false}, "retain message or not"}]
         ++ ?HELP_OPT
         ++ ?CONN_LONG_OPTS
-        ++ [{payload,
+        ++ [{message,
              undefined,
-             "payload",
+             "message",
              string,
              "application message that is being published"}]).
 -define(SUB_OPTS,
         ?CONN_SHORT_OPTS
         ++ [{topic_id_type,
              $t,
-             "topic_type",
-             {atom, ?TOPIC_ID},
-             "mqtt topic name on which to subscribe to(exclusive with topic_id)"},
-            {topic_id_or_name,
-             $t,
-             "topic_id_or_name",
+             "topic_id_type",
+             {integer, ?PRE_DEF_TOPIC_ID},
+             "mqtt topic id type(0 - topic id, 1 - predefined topic id, 2 - short topic name)"},
+             {topic_id,
+             $i,
+             "topic_id",
+             integer,
+             "mqtt topic id on which to subscribe to(exclusive "
+             "with topic_name)"},
+             {topic_name,
+             $m,
+             "topic_name",
              string,
-             "mqtt topic id on which to subscribe to(exclusive with topic_name)"},
+             "mqtt topic name on which to subscribe to(exclusive "
+             "with topic_id)"},
             {qos,
              $q,
              "qos",
@@ -83,51 +96,67 @@ main(["sub" | Argv]) ->
   ok = maybe_help(sub, Opts),
 
   main(sub, Opts);
-
 main(["pub" | Argv]) ->
   {ok, {Opts, _Args}} = getopt:parse(?PUB_OPTS, Argv),
   ok = maybe_help(pub, Opts),
 
-  ok = check_required_args(pub, [payload], Opts),
+  ok = check_required_args(pub, [message], Opts),
 
   main(pub, Opts);
-
 main(_Argv) ->
   io:format("Usage: ~s pub | sub [--help]~n", [?CMD_NAME]).
 
--spec main(pub | sub, [term()]) -> ok.
+-spec main(pub | sub, [term()]) -> ok | no_return().
 main(PubSub, Opts) ->
   application:ensure_all_started(emqttsn),
 
   NOpts = parse_cmd_opts(Opts),
+  Name = proplists:get_value(name, NOpts),
+  Host = proplists:get_value(host, NOpts),
+  Port = proplists:get_value(port, NOpts),
 
-  {Socket, Client, Config} = emqttsn:start_link(get_value(name, NOpts), NOpts),
-  io:format("Client ~s sent CONNECT~n", [get_value(clientid, NOpts)]),
+  {ok, Socket, Client, Config} = emqttsn:start_link(Name, NOpts),
+  emqttsn:add_host(Client, Host, Port, 1),
+  emqttsn:connect(Client, 1, true),
+  io:format("Client ~s CONNECT finished", [Name]),
   case PubSub of
     pub ->
-      publish(Client, NOpts),
+      publish(Client, Config, NOpts),
       disconnect(Client, NOpts);
     sub ->
-      subscribe(Client, NOpts),
-      emqttsn_udp:recv(Socket, Client, Config)
+      subscribe(Client, Config, NOpts),
+      loop_recv(Socket)
   end,
   ok.
 
--spec publish(emqtsn:client(), [term()]) -> ok.
-publish(Client, Opts) ->
-  Payload = get_value(payload, Opts),
+-spec publish(emqtsn:client(), config(), [term()]) -> ok.
+publish(Client, _Config, Opts) ->
+  Message = get_value(message, Opts),
   Retain = get_value(retain, Opts),
   TopicIdType = get_value(topic_id_type, Opts),
-  TopicIdOrName = get_value(topic_id_or_name, Opts),
-  emqttsn:publish(Client, Retain, TopicIdType, TopicIdOrName, Payload),
+  TopicIdOrName = case TopicIdType of
+    ?SHORT_TOPIC_NAME -> get_value(topic_name, Opts);
+    ?TOPIC_ID -> get_value(topic_id, Opts);
+    ?PRE_DEF_TOPIC_ID -> get_value(topic_id, Opts)
+  end,
+  emqttsn:publish(Client, Retain, TopicIdType, TopicIdOrName, Message, true),
   ok.
 
--spec subscribe(emqtsn:client(), [term()]) -> ok.
-subscribe(Client, Opts) ->
+-spec loop_recv(inet:socket()) -> no_return().
+loop_recv(Socket) ->
+  emqttsn_udp:recv(Socket),
+  loop_recv(Socket).
+
+-spec subscribe(emqtsn:client(), config(), [term()]) -> ok.
+subscribe(Client, Config, Opts) ->
   TopicIdType = get_value(topic_id_type, Opts),
-  TopicIdOrName = get_value(topic_id_or_name, Opts),
+  TopicIdOrName = case TopicIdType of
+    ?SHORT_TOPIC_NAME -> get_value(topic_name, Opts);
+    ?TOPIC_ID -> get_value(topic_id, Opts);
+    ?PRE_DEF_TOPIC_ID -> get_value(topic_id, Opts)
+  end,
   MaxQos = get_value(qos, Opts),
-  emqttsn:subscribe(Client, TopicIdType, TopicIdOrName, MaxQos),
+  emqttsn:subscribe(Client, TopicIdType, TopicIdOrName, MaxQos, true),
   ok.
 
 -spec disconnect(emqtsn:client(), [term()]) -> ok.
@@ -178,9 +207,8 @@ parse_cmd_opts(Opts) ->
 parse_cmd_opts([], Acc) ->
   Acc;
 parse_cmd_opts([{host, Host} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{host, Host} | Acc]);
-parse_cmd_opts([{port, Port} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{port, Port} | Acc]);
+  {ok, StdAddress} = inet:parse_ipv4_address(Host),
+  parse_cmd_opts(Opts, [{host, StdAddress} | Acc]);
 parse_cmd_opts([{iface, Interface} | Opts], Acc) ->
   NAcc =
     case inet:parse_address(Interface) of
@@ -208,30 +236,8 @@ parse_cmd_opts([{iface, Interface} | Opts], Acc) ->
   parse_cmd_opts(Opts, NAcc);
 parse_cmd_opts([{protocol_version, 'v1.2'} | Opts], Acc) ->
   parse_cmd_opts(Opts, [{proto_ver, ?MQTTSN_PROTO_V1_2} | Acc]);
-parse_cmd_opts([{clientid, Clientid} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{clientid, list_to_binary(Clientid)} | Acc]);
-parse_cmd_opts([{will_topic, Topic} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{will_topic, list_to_binary(Topic)} | Acc]);
-parse_cmd_opts([{will_payload, Payload} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{will_payload, list_to_binary(Payload)} | Acc]);
-parse_cmd_opts([{will_qos, Qos} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{will_qos, Qos} | Acc]);
-parse_cmd_opts([{will_retain, Retain} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{will_retain, Retain} | Acc]);
-parse_cmd_opts([{keepalive, I} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{keepalive, I} | Acc]);
-parse_cmd_opts([{qos, QoS} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{qos, QoS} | Acc]);
-parse_cmd_opts([{topic_name, TopicName} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{topic_name, TopicName} | Acc]);
-parse_cmd_opts([{topic_id, TopicId} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{topic_id, TopicId} | Acc]);
-parse_cmd_opts([{retain, Retain} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{retain, Retain} | Acc]);
-parse_cmd_opts([{payload, Payload} | Opts], Acc) ->
-  parse_cmd_opts(Opts, [{payload, list_to_binary(Payload)} | Acc]);
-parse_cmd_opts([_ | Opts], Acc) ->
-  parse_cmd_opts(Opts, Acc).
+parse_cmd_opts([{Key, Value} | Opts], Acc) ->
+  parse_cmd_opts(Opts, [{Key, Value} | Acc]).
 
 -spec maybe_append(term(), term(), [{term(), term()}]) -> [{term(), term()}].
 maybe_append(Key, Value, TupleList) ->

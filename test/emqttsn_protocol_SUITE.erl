@@ -158,7 +158,30 @@ t_connect_with_will(_Cfg) ->
     ok.
 
 t_publish_qos_neg(_Cfg) ->
-    ok.
+    GateWayId = 1,
+    TopicIdType = ?PRE_DEF_TOPIC_ID,
+    TopicId = 1,
+    Message = "Message",
+    Qos = ?QOS_0,
+
+    Block = true,
+
+    % clear default message consumer
+    {ok, _, ClientRecv, _} = emqttsn:start_link("judgement_1", [{msg_handler, []}]),
+    ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
+    ok = emqttsn:connect(ClientRecv, GateWayId, Block),
+    ok = emqttsn:subscribe(ClientRecv, TopicIdType, TopicId, Qos, Block),
+
+    {ok, Socket} = emqttsn_udp:init_port(),
+    emqttsn_udp:connect(Socket, ?HOST, ?PORT),
+
+    emqttsn_send:send_pub_any(#config{}, Socket, ?HOST, ?PORT, TopicIdType, TopicId, Message),
+
+    % get message async from state machine
+    {ok, RecvMsgs} = emqttsn_utils:get_one_topic_msg(ClientRecv, TopicId, Block),
+    ?_assertEqual([Message], RecvMsgs),
+
+    emqttsn:stop(ClientRecv).
 
 t_publish_qos_1(_Cfg) ->
     GateWayId = 1,
@@ -271,4 +294,4 @@ t_sleeping(_Cfg) ->
     ?_assertEqual(asleep, emqttsn:get_state_name(Client)),
     timer:sleep(2000),
     ?_assertEqual(awake, emqttsn:get_state_name(Client)),
-    ok.
+    emqttsn:stop(Client).

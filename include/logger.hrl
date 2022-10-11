@@ -20,7 +20,9 @@
 
 -include_lib("kernel/include/logger.hrl").
 
+-define(LOGP(Level, Data), ?LOGP(Level, Data, [])).
+-define(LOGP(Level, Data, Meta), ?LOG(Level, "[MQTTSN-CLI] " ++ Data, Meta)).
 -define(LOG_STATE(Level, Data, Meta, State),
-  ?LOG(Level, "[MQTTSN-CLI] " ++  Data ++ "\n~p", Meta ++ [State])).
+        ?LOGP(Level, Data ++ "\n~p", Meta ++ [State])).
 
 -endif.

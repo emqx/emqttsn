@@ -21,10 +21,10 @@ start_link(Name, {Socket, Config}) ->
   case gen_statem:start_link({global, Name}, ?MODULE, {Name, Socket, Config}, []) of
     {'ok', Pid} -> {ok, Pid};
     'ignore' -> 
-      ?LOG(error, "gen_statem starting process returns ignore", #{reason => ignore}),
+      ?LOGP(error, "gen_statem starting process returns ignore"),
       {error, ignore};
     {error, Reason} -> 
-      ?LOG(error, "gen_statem starting process failed", #{reason => Reason}),
+      ?LOGP(error, "gen_statem starting process failed, reason: ~p", [Reason]),
       {error, Reason}
   end.
 

@@ -33,10 +33,10 @@ init_port(LocalPort) ->
     {ok, Socket} ->
       {ok, Socket};
     {error, Reason} when LocalPort =:= 0 ->
-      ?LOG(error, "Open random port failed", #{reason => Reason}),
+      ?LOGP(error, "Open random port failed, reason : ~p", [Reason]),
       {error, Reason};
     {error, _Reason} when LocalPort =/= 0 ->
-      ?LOG(warning, "Open port ~p failed, turn to random port", [LocalPort]),
+      ?LOGP(warning, "Open port ~p failed, turn to random port", [LocalPort]),
       init_port()
   end.
 
@@ -78,7 +78,7 @@ broadcast(Socket, Bin, RemotePort) ->
           {error, Reason}
       end;
     {error, Reason} ->
-      ?LOG_WARNING("boardcast failed:~p", [Reason]),
+      ?LOGP(warning, "boardcast failed:~p", [Reason]),
       {error, Reason}
   end.
 
@@ -90,16 +90,16 @@ recv(Socket) ->
 recv(Socket, Timeout) ->
   receive
       {udp, Socket, _, _, Bin} ->
-          ?LOG_DEBUG("receive_response Bin=~p~n", [Bin]),
+          ?LOGP(debug, "receive_response Bin=~p~n", [Bin]),
           case emqttsn_frame:parse(Bin) of
             {ok, Packet} ->
               {ok, Packet};
             {error, Reason} ->
-              ?LOG_WARNING("parse packet ~p failed: ~p",[Bin, Reason]),
+              ?LOGP(warning, "parse packet ~p failed: ~p",[Bin, Reason]),
               recv(Socket, Timeout)
           end;
       Other ->
-          ?LOG_WARNING("receive_response() Other message: ~p", [{unexpected_udp_data, Other}]),
+          ?LOGP(warning, "receive_response() Other message: ~p", [{unexpected_udp_data, Other}]),
           recv(Socket, Timeout)
   after Timeout ->
       udp_receive_timeout

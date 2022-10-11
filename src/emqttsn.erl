@@ -62,6 +62,8 @@ merge_opt(Config, [{will_topic, Value} | Options]) ->
   merge_opt(Config#config{will_topic = Value}, Options);
 merge_opt(Config, [{will_msg, Value} | Options]) ->
   merge_opt(Config#config{will_msg = Value}, Options);
+merge_opt(Config, [{_AnyKey, _AnyValue} | Options]) ->
+  merge_opt(Config, Options);
 merge_opt(Config, []) ->
   Config.
 
@@ -75,12 +77,12 @@ start_link(Name, Option) ->
 
   case emqttsn_udp:init_port(Port) of
     {error, Reason} ->
-      ?LOG(error, "port init failed", #{reason => Reason}),
+      ?LOGP(error, "port init failed, reason: ~p", [Reason]),
       {error, Reason};
     {ok, Socket} ->
       case emqttsn_state:start_link(Name, {Socket, Config}) of
         {error, Reason} ->
-          ?LOG(error, "gen_statem init failed", #{reason => Reason}),
+          ?LOGP(error, "gen_statem init failed, reason: ~p", [Reason]),
           {error, Reason};
         {ok, StateM} ->
           {ok, Socket, StateM, Config}

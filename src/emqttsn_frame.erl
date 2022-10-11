@@ -127,7 +127,7 @@ parse_payload(<<TopicId:16/integer, MsgId:16/integer, ReturnCode:8/integer>>,
                         packet_id = MsgId,
                         return_code = ReturnCode};
 parse_payload(<<SerFlag:1/binary,
-                TopicIdOrName:2/binary,
+                TopicIdOrNameBin:2/binary,
                 MsgId:16/integer,
                 MessageBin/bitstring>>,
               #mqttsn_packet_header{type = ?PUBLISH},
@@ -139,13 +139,14 @@ parse_payload(<<SerFlag:1/binary,
     ?SHORT_TOPIC_NAME ->
       #mqttsn_packet_publish{
         flag = Flag,               
-        topic_id_or_name = binary_to_list(TopicIdOrName),        
+        topic_id_or_name = binary_to_list(TopicIdOrNameBin),        
         packet_id = MsgId,             
         message = Message};
     _ ->
+      <<TopicIdOrName:16/integer>> = TopicIdOrNameBin,
       #mqttsn_packet_publish{
         flag = Flag,
-        topic_id_or_name = binary_to_integer(TopicIdOrName),
+        topic_id_or_name = TopicIdOrName,
         packet_id = MsgId,
         message = Message}
   end;

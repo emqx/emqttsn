@@ -23,6 +23,11 @@
 
 -define(HOST, {127, 0, 0, 1}).
 -define(PORT, 1884).
+-define(PREDEF_TOPIC_ID1, 1).
+-define(PREDEF_TOPIC_ID2, 2).
+-define(PREDEF_TOPIC_NAME1, <<"/predefined/topic/name/hello">>).
+-define(PREDEF_TOPIC_NAME2, <<"/predefined/topic/name/nice">>).
+-define(ENABLE_QOS3, true).
 
 %%--------------------------------------------------------------------
 %% setups
@@ -40,7 +45,13 @@ end_per_suite(_Cfg) ->
     ok.
 
 set_special_confs(_App) ->
-    ok.
+    application:set_env(emqx_sn, port, {?HOST, ?PORT}),
+    application:set_env(emqx_sn, gateway_id, 1),
+    application:set_env(emqx_sn, enable_qos3, ?ENABLE_QOS3),
+    application:set_env(emqx_sn,
+                        predefined,
+                        [{?PREDEF_TOPIC_ID1, ?PREDEF_TOPIC_NAME1},
+                         {?PREDEF_TOPIC_ID2, ?PREDEF_TOPIC_NAME2}]).
 
 %%--------------------------------------------------------------------
 %% tests
