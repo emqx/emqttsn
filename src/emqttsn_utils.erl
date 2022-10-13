@@ -44,11 +44,11 @@ msg_handler_recall(Handlers, TopicId, Msg) ->
   ok.
 
 -spec store_msg_async(dict:dict(topic_id(), queue:queue()),
-                      dict:dict(topic_id(), pos_integer()),
+                      dict:dict(topic_id(), non_neg_integer()),
                       topic_id(),
-                      pos_integer(),
+                      non_neg_integer(),
                       string()) ->
-                       {dict:dict(topic_id(), queue:queue()), dict:dict(topic_id(), pos_integer())}.
+                       {dict:dict(topic_id(), queue:queue()), dict:dict(topic_id(), non_neg_integer())}.
 store_msg_async(MsgManager, MsgCounter, TopicId, TopicMax, Msg) ->
   case {dict:find(TopicId, MsgCounter), dict:find(TopicId, MsgManager)} of
     {{ok, OldNum}, {ok, MsgQueue}} when OldNum < TopicMax ->
@@ -68,9 +68,9 @@ store_msg_async(MsgManager, MsgCounter, TopicId, TopicMax, Msg) ->
 
 -spec refresh_msg_manager(topic_id(),
                           dict:dict(topic_id(), queue:queue()),
-                          dict:dict(topic_id(), pos_integer())) ->
+                          dict:dict(topic_id(), non_neg_integer())) ->
                            {dict:dict(topic_id(), queue:queue()),
-                            dict:dict(topic_id(), pos_integer()),
+                            dict:dict(topic_id(), non_neg_integer()),
                             [string()]}.
 refresh_msg_manager(TopicId, MsgManager, MsgCounter) ->
   case dict:find(TopicId, MsgManager) of
@@ -85,7 +85,7 @@ refresh_msg_manager(TopicId, MsgManager, MsgCounter) ->
 %%--------------------------------------------------------------------
 %% message management API
 %%--------------------------------------------------------------------
--spec store_msg(state(), topic_id(), pos_integer(), string()) -> state().
+-spec store_msg(state(), topic_id(), non_neg_integer(), string()) -> state().
 store_msg(State, TopicId, TopicMax, Msg) ->
   #state{msg_manager = MsgManager,
          msg_counter = MsgCounter,
@@ -120,7 +120,7 @@ get_one_topic_msg(Client, TopicId, Block) ->
            gen_statem:cast(Client, {reset_msg, NewMsgManager, NewMsgCounter}),
            {ok, Messages};
          {true, []} ->
-          get_one_topic_msg(Client, TopicId, true);
+           get_one_topic_msg(Client, TopicId, true);
          {true, _} ->
            gen_statem:cast(Client, {reset_msg, NewMsgManager, NewMsgCounter}),
            {ok, Messages}
@@ -130,11 +130,11 @@ get_one_topic_msg(Client, TopicId, Block) ->
 -spec get_msg(client(), [topic_id()]) ->
                {ok, dict:dict(topic_id(), [string()])} | invalid.
 get_msg(Client, TopicIds) ->
-  NewDict = dict:new(),
-  get_msg(Client, TopicIds, NewDict).
+  {ok, KVList} = get_msg(Client, TopicIds, []),
+  {ok, dict:from_list(KVList)}.
 
--spec get_msg(client(), [topic_id()], dict:dict(topic_id(), [string()])) ->
-               {ok, dict:dict(topic_id(), [string()])} | invalid.
+-spec get_msg(client(), [topic_id()], [{topic_id(), [string()]}]) ->
+               {ok, [{topic_id(), [string()]}]} | invalid.
 get_msg(_Client, [], Ret) ->
   {ok, Ret};
 get_msg(Client, [TopicId | TopicIds], Ret) ->
@@ -142,8 +142,7 @@ get_msg(Client, [TopicId | TopicIds], Ret) ->
     invalid ->
       invalid;
     {ok, MsgOfTopicId} ->
-      NewRet = dict:merge(fun(_K, V1, _V2) -> V1 end, MsgOfTopicId, Ret),
-      get_msg(Client, TopicIds, NewRet)
+      get_msg(Client, TopicIds, Ret ++ [{TopicId, MsgOfTopicId}])
   end.
 
 -spec get_msg(client()) -> {ok, dict:dict(topic_id(), [string()])} | invalid.
@@ -195,8 +194,9 @@ get_gw(TableName, GWId) ->
     [GWInfo = #gw_info{}] ->
       GWInfo;
     [] ->
-      ?LOGP(warning, "not gateway to connect from ~p for selected gateway id:~p",
-                   [TableName, GWId]),
+      ?LOGP(warning,
+            "not gateway to connect from ~p for selected gateway id:~p",
+            [TableName, GWId]),
       none
   end.
 
@@ -217,7 +217,7 @@ first_gw(TableName) ->
       GWInfo
   end.
 
--spec next_gw(string(), bitstring()) -> #gw_info{} | none.
+-spec next_gw(string(), gw_id()) -> #gw_info{} | none.
 next_gw(TableName, GWId) ->
   NameGW = table_format(TableName, gateway),
   NextKey = ets:next(NameGW, GWId),
@@ -256,4 +256,3 @@ get_topic_id(TopicIdType, TopicIdOrName, NameMap) ->
     ?SHORT_TOPIC_NAME ->
       dict:fetch(TopicIdOrName, NameMap)
   end.
-

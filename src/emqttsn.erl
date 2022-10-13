@@ -146,7 +146,7 @@ sleep(Client, Interval) ->
 disconnect(Client) ->
   gen_statem:cast(Client, disconnect).
 
--spec get_state(client()) -> state().
+-spec get_state(client()) -> atom().
 get_state(Client) ->
   State = gen_statem:call(Client, get_state),
   State.
@@ -163,10 +163,11 @@ reset_config(Client, Config) ->
 -spec stop(client()) -> ok.
 stop(Client) ->
   StateName = get_state(Client),
-  if StateName =/= initialized andalso StateName =/= found ->
-       disconnect(Client),
-       gen_statem:stop(Client);
-     StateName =:= initialized orelse StateName =:= found ->
-       gen_statem:stop(Client)
+  case StateName =/= initialized andalso StateName =/= found of
+    true -> 
+      disconnect(Client),
+      gen_statem:stop(Client);
+    false ->
+      gen_statem:stop(Client)
   end,
   ok.

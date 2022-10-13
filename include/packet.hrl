@@ -188,7 +188,7 @@
 -record(mqttsn_packet_gwinfo,
         {source :: msg_src(), gateway_id :: gw_id(), gateway_add = ?DEFAULT_ADDRESS :: host()}).
 -record(mqttsn_packet_connect,
-        {proto_name = ?MQTTSN_PROTO_V1_2_NAME :: bitstring(),
+        {proto_name = ?MQTTSN_PROTO_V1_2_NAME :: string(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
          flag :: flag(),
          duration :: non_neg_integer(),
@@ -232,7 +232,7 @@
          topic_name = "" :: string(),
          topic_id = 0 :: topic_id()}).
 -record(mqttsn_packet_unsuback, {packet_id :: packet_id()}).
--record(mqttsn_packet_pingreq, {empty_packet :: boolean(), client_id :: string()}).
+-record(mqttsn_packet_pingreq, {empty_packet :: boolean(), client_id = "" :: string()}).
 -record(mqttsn_packet_pingresp, {}).
 -record(mqttsn_packet_disconnect,
         {empty_packet :: boolean(), duration = 0 :: non_neg_integer()}).

@@ -19,15 +19,14 @@
 -define(MAX_PACKET_ID, 16#ffff).
 -define(MAX_PACKET_SIZE, 16#ffff).
 
-
 -type msg_handler() :: fun((topic_id(), string()) -> term()).
 -type option() ::
         {strict_mode, boolean()} | {clean_session, boolean()} | {max_size, 1..?MAX_PACKET_SIZE} |
-        {auto_discover, boolean()} | {ack_timeout, non_neg_integer()} | {keep_alive, non_neg_integer()} |
-        {resend_no_qos, boolean()} | {max_resend, non_neg_integer()} |
-        {retry_interval, non_neg_integer()} | {connect_timeout, non_neg_integer()} |
-        {search_gw_interval, non_neg_integer()} | {reconnect_max_times, non_neg_integer()} |
-        {max_message_each_topic, non_neg_integer()}  |
+        {auto_discover, boolean()} | {ack_timeout, non_neg_integer()} |
+        {keep_alive, non_neg_integer()} | {resend_no_qos, boolean()} |
+        {max_resend, non_neg_integer()} | {retry_interval, non_neg_integer()} |
+        {connect_timeout, non_neg_integer()} | {search_gw_interval, non_neg_integer()} |
+        {reconnect_max_times, non_neg_integer()} | {max_message_each_topic, non_neg_integer()} |
         {msg_handler, [msg_handler()]} | {send_port, inet:port_number()} | {host, host()} |
         {port, inet:port_number()} | {client_id, bin_1_byte()} | {proto_ver, version()} |
         {proto_name, iodata()} | {radius, non_neg_integer()} | {duration, non_neg_integer()} |
@@ -36,10 +35,11 @@
 -record(config,
         {% system action config
          strict_mode = false :: boolean(),
-         clean_session = true :: boolean(), max_size = ?MAX_PACKET_SIZE :: 1..?MAX_PACKET_SIZE,
-         auto_discover = true :: boolean(), ack_timeout = ?DEFAULT_ACK_TIMEOUT :: non_neg_integer(),
-         keep_alive = ?DEFAULT_PING_INTERVAL :: non_neg_integer(), resend_no_qos = true :: boolean(),
-         max_resend = ?DEFAULT_MAX_RESEND :: non_neg_integer(),
+         clean_session = true :: boolean(), max_size = ?MAX_PACKET_SIZE :: pos_integer(),
+         auto_discover = true :: boolean(),
+         ack_timeout = ?DEFAULT_ACK_TIMEOUT :: non_neg_integer(),
+         keep_alive = ?DEFAULT_PING_INTERVAL :: non_neg_integer(),
+         resend_no_qos = true :: boolean(), max_resend = ?DEFAULT_MAX_RESEND :: non_neg_integer(),
          retry_interval = ?DEFAULT_RETRY_INTERVAL :: non_neg_integer(),
          connect_timeout = ?DEFAULT_CONNECT_TIMEOUT :: non_neg_integer(),
          search_gw_interval = ?DEFAULT_SEARCH_GW_INTERVAL :: non_neg_integer(),
@@ -51,10 +51,10 @@
          % protocol config
          client_id = ?CLIENT_ID :: string(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
-         proto_name = ?MQTTSN_PROTO_V1_2_NAME :: iodata(),
-         radius = 3 :: non_neg_integer(), duration = 50 :: non_neg_integer(), 
-         will_qos = ?QOS_0 :: qos(), recv_qos = ?QOS_0 :: qos(), pub_qos = ?QOS_0 :: qos(),
-         will = false :: boolean(), will_topic = "" :: string(), will_msg = "" :: string()}).
+         proto_name = ?MQTTSN_PROTO_V1_2_NAME :: string(), radius = 3 :: non_neg_integer(),
+         duration = 50 :: non_neg_integer(), will_qos = ?QOS_0 :: qos(),
+         recv_qos = ?QOS_0 :: qos(), pub_qos = ?QOS_0 :: qos(), will = false :: boolean(),
+         will_topic = "" :: string(), will_msg = "" :: string()}).
 
 -type config() :: #config{}.
 
@@ -70,9 +70,9 @@
 -type gw_src() :: ?MANUAL | ?BROADCAST | ?PARAPHRASE.
 
 -record(gw_info,
-        {id :: bin_1_byte(), host :: host(), port :: inet:port_number(), from :: gw_src()}).
+        {id :: gw_id(), host :: host(), port :: inet:port_number(), from :: gw_src()}).
 -record(gw_collect,
-        {id = <<>> :: bitstring(),
+        {id = 0 :: gw_id(),
          host = ?DEFAULT_ADDRESS :: host(),
          port = ?DEFAULT_PORT :: inet:port_number()}).
 

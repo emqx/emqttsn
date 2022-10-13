@@ -719,7 +719,7 @@ handle_event(cast, ?PUBREL_PACKET(RemotePacketId), wait_pubrec_qos2,
                             next_packet_id = LocalPacketId})
   when RemotePacketId == LocalPacketId ->
   ?LOG_STATE(debug, "Finish receive publish part 2, packet id: ~p",
-             RemotePacketId, State),
+             [RemotePacketId], State),
   emqttsn_send:send_pubcomp(Config, Socket, RemotePacketId),
   {next_state, connected,
    State#state{next_packet_id = next_packet_id(RemotePacketId)}};

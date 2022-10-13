@@ -13,7 +13,11 @@
 -define(CMD_NAME, "emqttsn").
 -define(HELP_OPT, [{help, undefined, "help", boolean, "Help information"}]).
 -define(CONN_SHORT_OPTS,
-        [{name, $n, "name", {string, ?CLIENT_ID}, "client name(equal to client_id, unique for each client)"},
+        [{name,
+          $n,
+          "name",
+          {string, ?CLIENT_ID},
+          "client name(equal to client_id, unique for each client)"},
          {host, $h, "host", {string, "127.0.0.1"}, "mqtt-sn server hostname or IP address"},
          {port, $p, "port", {integer, 1884}, "mqtt-sn server port number"},
          {iface, $I, "iface", string, "specify the network interface or ip address to use"},
@@ -35,19 +39,20 @@
              $t,
              "topic_id_type",
              {integer, ?PRE_DEF_TOPIC_ID},
-             "mqtt topic id type(0 - topic id, 1 - predefined topic id, 2 - short topic name)"},
+             "mqtt topic id type(0 - topic id, 1 - predefined topic id, 2 "
+             "- short topic name)"},
             {topic_id,
              $i,
              "topic_id",
              integer,
-             "mqtt topic id on which to publish the message(exclusive "
-             "with topic_name)"},
-             {topic_name,
+             "mqtt topic id on which to publish the message(exclusive with "
+             "topic_name)"},
+            {topic_name,
              $m,
              "topic_name",
              string,
-             "mqtt topic name on which to publish the message(exclusive "
-             "with topic_id)"},
+             "mqtt topic name on which to publish the message(exclusive with "
+             "topic_id)"},
             {qos,
              $q,
              "qos",
@@ -67,19 +72,18 @@
              $t,
              "topic_id_type",
              {integer, ?PRE_DEF_TOPIC_ID},
-             "mqtt topic id type(0 - topic id, 1 - predefined topic id, 2 - short topic name)"},
-             {topic_id,
+             "mqtt topic id type(0 - topic id, 1 - predefined topic id, 2 "
+             "- short topic name)"},
+            {topic_id,
              $i,
              "topic_id",
              integer,
-             "mqtt topic id on which to subscribe to(exclusive "
-             "with topic_name)"},
-             {topic_name,
+             "mqtt topic id on which to subscribe to(exclusive with topic_name)"},
+            {topic_name,
              $m,
              "topic_name",
              string,
-             "mqtt topic name on which to subscribe to(exclusive "
-             "with topic_id)"},
+             "mqtt topic name on which to subscribe to(exclusive with topic_id)"},
             {qos,
              $q,
              "qos",
@@ -134,11 +138,15 @@ publish(Client, _Config, Opts) ->
   Message = get_value(message, Opts),
   Retain = get_value(retain, Opts),
   TopicIdType = get_value(topic_id_type, Opts),
-  TopicIdOrName = case TopicIdType of
-    ?SHORT_TOPIC_NAME -> get_value(topic_name, Opts);
-    ?TOPIC_ID -> get_value(topic_id, Opts);
-    ?PRE_DEF_TOPIC_ID -> get_value(topic_id, Opts)
-  end,
+  TopicIdOrName =
+    case TopicIdType of
+      ?SHORT_TOPIC_NAME ->
+        get_value(topic_name, Opts);
+      ?TOPIC_ID ->
+        get_value(topic_id, Opts);
+      ?PRE_DEF_TOPIC_ID ->
+        get_value(topic_id, Opts)
+    end,
   emqttsn:publish(Client, Retain, TopicIdType, TopicIdOrName, Message, true),
   ok.
 
@@ -148,13 +156,17 @@ loop_recv(Socket) ->
   loop_recv(Socket).
 
 -spec subscribe(emqtsn:client(), config(), [term()]) -> ok.
-subscribe(Client, Config, Opts) ->
+subscribe(Client, _Config, Opts) ->
   TopicIdType = get_value(topic_id_type, Opts),
-  TopicIdOrName = case TopicIdType of
-    ?SHORT_TOPIC_NAME -> get_value(topic_name, Opts);
-    ?TOPIC_ID -> get_value(topic_id, Opts);
-    ?PRE_DEF_TOPIC_ID -> get_value(topic_id, Opts)
-  end,
+  TopicIdOrName =
+    case TopicIdType of
+      ?SHORT_TOPIC_NAME ->
+        get_value(topic_name, Opts);
+      ?TOPIC_ID ->
+        get_value(topic_id, Opts);
+      ?PRE_DEF_TOPIC_ID ->
+        get_value(topic_id, Opts)
+    end,
   MaxQos = get_value(qos, Opts),
   emqttsn:subscribe(Client, TopicIdType, TopicIdOrName, MaxQos, true),
   ok.

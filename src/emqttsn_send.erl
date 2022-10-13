@@ -15,8 +15,8 @@
                    inet:socket(),
                    boolean(),
                    boolean(),
-                   pos_integer(),
-                   bin_1_byte()) ->
+                   non_neg_integer(),
+                   string()) ->
                     ok | {error, term()}.
 send_connect(Config, Socket, Will, CleanSession, Duration, ClientId) ->
   Packet = ?CONNECT_PACKET(Will, CleanSession, Duration, ClientId),
@@ -158,7 +158,7 @@ send_pub_any(Config, Socket, Address, Port, TopicIdType, TopicIdOrName, Message)
                   host(),
                   inet:port_number(),
                   pos_integer(),
-                  bin_1_byte(),
+                  gw_id(),
                   host()) ->
                    ok | {error, term()}.
 send_gwinfo(Config, Socket, Address, Port, _Radius, GateWayId, GateWayAdd) ->

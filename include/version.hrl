@@ -5,7 +5,7 @@
 %%--------------------------------------------------------------------
 
 -define(MQTTSN_PROTO_V1_2, 2).
--define(MQTTSN_PROTO_V1_2_NAME, <<1,2>>).
+-define(MQTTSN_PROTO_V1_2_NAME, "MQTT-SN").
 -define(PROTOCOL_NAMES, [{?MQTTSN_PROTO_V1_2, ?MQTTSN_PROTO_V1_2_NAME}]).
 
 -type version() :: ?MQTTSN_PROTO_V1_2.

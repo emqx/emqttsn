@@ -69,22 +69,20 @@ parse(Bin, Config) ->
   end.
 
 -spec parse_leading_len(bitstring(), #config{}) ->
-                         {ok, pos_integer(), bitstring(), pos_integer()} | {error, term()}.
+                         {ok, pos_integer(), pos_integer(), bitstring()} | {error, term()}.
 parse_leading_len(<<16#01:8/integer, Length:16/integer, Rest/binary>>, Config) ->
   SelfLength = 3,
   #config{max_size = MaxSize} = Config,
-  if Length > MaxSize ->
-       {error, frame_too_large};
-     Length =< MaxSize ->
-       {ok, Length, SelfLength, Rest}
+  case Length =< MaxSize of
+    true -> {ok, Length, SelfLength, Rest};
+    false -> {error, frame_too_large}
   end;
 parse_leading_len(<<Length:8/integer, Rest/binary>>, Config) ->
   SelfLength = 1,
   #config{max_size = MaxSize} = Config,
-  if Length > MaxSize ->
-       {error, frame_too_large};
-     Length =< MaxSize ->
-       {ok, Length, SelfLength, Rest}
+  case Length =< MaxSize of
+    true -> {ok, Length, SelfLength, Rest};
+    false -> {error, frame_too_large}
   end.
 
 % parse the message type to a header of packet
@@ -115,7 +113,7 @@ parse_payload(<<>>, #mqttsn_packet_header{type = ?WILLMSGREQ}, _Config) ->
 parse_payload(<<TopicId:16/integer, MsgId:16/integer, TopicNameBin/binary>>,
               #mqttsn_packet_header{type = ?REGISTER},
               _Config) ->
-  TopicName = list_to_binary(TopicNameBin),
+  TopicName = binary_to_list(TopicNameBin),
   #mqttsn_packet_register{source = ?SERVER,
                           topic_id = TopicId,
                           packet_id = MsgId,
@@ -176,7 +174,7 @@ parse_payload(<<MsgId:16/integer>>, #mqttsn_packet_header{type = ?UNSUBACK}, _Co
   #mqttsn_packet_unsuback{packet_id = MsgId};
 parse_payload(<<ClienIdBin/binary>>, #mqttsn_packet_header{type = ?PINGREQ}, _Config) ->
   ClienId = binary_to_list(ClienIdBin),
-  #mqttsn_packet_pingreq{client_id = ClienId};
+  #mqttsn_packet_pingreq{empty_packet = false, client_id = ClienId};
 parse_payload(<<>>, #mqttsn_packet_header{type = ?PINGRESP}, _Config) ->
   #mqttsn_packet_pingresp{};
 parse_payload(Bin, #mqttsn_packet_header{type = ?DISCONNECT}, Config) ->
