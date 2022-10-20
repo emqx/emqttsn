@@ -14,10 +14,6 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--ifndef(EMQTT_LOGGER_HRL).
-
--define(EMQTT_LOGGER_HRL, true).
-
 -include_lib("kernel/include/logger.hrl").
 
 -define(LOGP(Level, Data), ?LOGP(Level, Data, [])).
@@ -25,4 +21,3 @@
 -define(LOG_STATE(Level, Data, Meta, State),
         ?LOGP(Level, Data ++ "\n~p", Meta ++ [State])).
 
--endif.

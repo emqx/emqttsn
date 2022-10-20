@@ -1,12 +1,28 @@
+%%-------------------------------------------------------------------------
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%-------------------------------------------------------------------------
+
+%% @doc state machine handler for MQTT-SN client 
+%% 
+%% @private
 -module(emqttsn_state).
 -behavior(gen_statem).
 
--include("packet.hrl").
--include("config.hrl").
+-include("emqttsn.hrl").
 -include("logger.hrl").
 -include_lib("stdlib/include/assert.hrl").
-
--import(emqttsn_utils, [next_packet_id/1]).
 
 -export([init/1, callback_mode/0, start_link/2, handle_event/4]).
 
@@ -42,7 +58,7 @@ init({Name, Socket, Config}) ->
 %% state  : [initialized] -> [found]
 %% trigger: enter state
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -64,8 +80,8 @@ handle_event(enter, _OldState, initialized,
 %% state  : repeat [initialized]
 %% trigger: state timeout
 
-%% @see gen_statem for state machine
-%% @see T_SEARCHGW
+%% gen_statem for state machine
+%% T_SEARCHGW
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -80,7 +96,7 @@ handle_event(state_timeout, {}, initialized, State = #state{config = Config}) ->
 %% state  : keep [initialized]
 %% trigger: receive advertise packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -98,7 +114,7 @@ handle_event(cast, {?ADVERTISE_PACKET(GateWayId, _Duration), Host, Port},
 %% state  : keep [initialized]
 %% trigger: receive gwinfo packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -116,8 +132,8 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId), Host, Port},
 %% state  : keep [initialized]
 %% trigger: receive gwinfo packet
 %%
-%% @see gen_statem for state machine
-%% @see use DEFAULT_PORT = 1884, maybe have mistake
+%% gen_statem for state machine
+%% use DEFAULT_PORT = 1884, maybe have mistake
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -136,7 +152,7 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId, GateWayAdd), _Host, _Port},
 %% state  : keep [initialized]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -154,7 +170,7 @@ handle_event(cast, {add_gw, Host, Port, GateWayId}, _StateName,
 %% state  : [initialized] -> [found]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -182,7 +198,7 @@ handle_event(cast, {connect, GateWayId}, initialized,
 %% state  : keep [found]
 %% trigger: enter state
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -204,7 +220,7 @@ handle_event(enter, _OldState, found,
 %% state  : [found] -> [connect_other]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -227,7 +243,7 @@ handle_event(state_timeout, {ResendTimes}, found,
 %% state  : keep [found]
 %% trigger: receive will_topic_req packet
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -246,7 +262,7 @@ handle_event(cast, ?WILLTOPICREQ_PACKET(), found,
 %% state  : keep [found]
 %% trigger: receive will_msg_req packet
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -264,7 +280,7 @@ handle_event(cast, ?WILLMSGREQ_PACKET(), found,
 %% state  : [found] -> [connected]
 %% trigger: receive connack packet and return code success
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -282,7 +298,7 @@ handle_event(cast, ?CONNACK_PACKET(ReturnCode), found,
 %% state  : keep [found]
 %% trigger: receive connack packet and return code failed
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -302,7 +318,7 @@ handle_event(cast, ?CONNACK_PACKET(ReturnCode), found,
 %% state  : [wait_reg] -> [connected]
 %% trigger: receive regack packet
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -341,7 +357,7 @@ handle_event(cast, ?REGACK_PACKET(TopicId, RemotePacketId, ReturnCode), wait_reg
 %% state  : [wait_reg] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -356,7 +372,7 @@ handle_event(state_timeout, {ResendTimes}, wait_reg,
   
   if
     WhetherResend andalso ResendTimes < MaxResend ->
-      emqttsn_send:send_register(Config, Socket, PacketId, TopicName),
+      emqttsn_send:send_register(Config, Socket, TopicName, PacketId),
       {keep_state, State#state{next_packet_id = PacketId,
                                waiting_data = {reg, TopicName}},
        {state_timeout, AckTimeout, {ResendTimes + 1}}};
@@ -370,7 +386,7 @@ handle_event(state_timeout, {ResendTimes}, wait_reg,
 %% state  : [wait_sub] -> [connected]
 %% trigger: receive suback packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -421,7 +437,7 @@ handle_event(cast,
 %% state  : [wait_sub] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -436,7 +452,7 @@ handle_event(state_timeout, {ResendTimes}, wait_sub,
   if
     WhetherResend andalso ResendTimes < MaxResend ->
       emqttsn_send:send_subscribe(Config, Socket, true, TopicIdType,
-                                  PacketId, TopicIdOrName, MaxQos),
+                                  TopicIdOrName, MaxQos, PacketId),
       {keep_state,
        State#state{next_packet_id = PacketId,
                    waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}},
@@ -451,7 +467,7 @@ handle_event(state_timeout, {ResendTimes}, wait_sub,
 %% state  : [wait_unsub] -> [connected]
 %% trigger: receive unsuback packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -475,7 +491,7 @@ handle_event(cast,
 %% state  : [wait_unsub] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -488,7 +504,7 @@ handle_event(state_timeout, {ResendTimes}, wait_sub, State =
              [ResendTimes, MaxResend], State),
   if
     WhetherResend andalso ResendTimes < MaxResend ->
-      emqttsn_send:send_unsubscribe(Config, Socket, TopicIdType, PacketId, TopicIdOrName),
+      emqttsn_send:send_unsubscribe(Config, Socket, TopicIdType, TopicIdOrName, PacketId),
       {keep_state,
         State#state{next_packet_id = PacketId,
                     waiting_data = {unsub, TopicIdType, TopicIdOrName}},
@@ -502,8 +518,8 @@ handle_event(state_timeout, {ResendTimes}, wait_sub, State =
 %% state  : [wait_pub_qos1] -> [connected]
 %% trigger: receive puback packet
 %%
-%% @see gen_statem for state machine
-%% @see QoS 1
+%% gen_statem for state machine
+%% QoS 1
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -554,8 +570,8 @@ handle_event(cast, ?PUBACK_PACKET(RemoteTopicId, RemotePacketId, ReturnCode),
 %% state  : [wait_pub_qos1] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
-%% @see QoS 1
+%% gen_statem for state machine
+%% QoS 1
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -572,7 +588,7 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos1,
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_publish(Config, Socket, ?QOS_1, ?DUP_TRUE, Retain, TopicIdType,
-                                TopicIdOrName, PacketId, Message),
+                                TopicIdOrName, Message, PacketId),
       {keep_state, State#state{next_packet_id = PacketId,
                                waiting_data = {pub, ?QOS_1, TopicIdType,
                                                TopicIdOrName, Message}},
@@ -588,8 +604,8 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos1,
 %% state  : [wait_pub_qos1] -> [wait_pubrel_qos2]
 %% trigger: receive puback packet
 %%
-%% @see gen_statem for state machine
-%% @see QoS 2
+%% gen_statem for state machine
+%% QoS 2
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -601,7 +617,7 @@ handle_event(cast, ?PUBREC_PACKET(RemotePacketId), wait_pub_qos2,
   when RemotePacketId == LocalPacketId ->
   ?LOG_STATE(debug, "Continue publish request part 2, packet id: ~p",
              [RemotePacketId], State),
-  TopicId = emqttsn_utils:get_topic_id(TopicIdType, TopicIdOrName, NameMap),
+  TopicId = get_topic_id(TopicIdType, TopicIdOrName, NameMap),
   #config{ack_timeout = AckTimeout,
           max_message_each_topic = TopicMaxMsg} = Config,
   NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
@@ -621,8 +637,8 @@ handle_event(cast, ?PUBREC_PACKET(RemotePacketId), wait_pub_qos2,
 %% state  : [wait_pub_qos1] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
-%% @see QoS 2
+%% gen_statem for state machine
+%% QoS 2
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -638,7 +654,7 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos2,
   if
     ResendTimes < MaxResend ->
       emqttsn_send:send_publish(Config, Socket, ?QOS_2, ?DUP_TRUE, Retain,
-                                TopicIdType, TopicIdOrName, PacketId, Message),
+                                TopicIdType, TopicIdOrName, Message, PacketId),
       {keep_state,
        State#state{next_packet_id = PacketId,
                    waiting_data = {pub, ?QOS_2, TopicIdType,
@@ -655,8 +671,8 @@ handle_event(state_timeout, {Retain, ResendTimes}, wait_pub_qos2,
 %% state  : [wait_pub_qos1] -> [wait_pubrel_qos2]
 %% trigger: receive puback packet
 %%
-%% @see gen_statem for state machine
-%% @see QoS 2
+%% gen_statem for state machine
+%% QoS 2
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -678,8 +694,8 @@ handle_event(cast, ?PUBCOMP_PACKET(RemotePacketId), wait_pubrel_qos2,
 %% state  : [wait_pubrel_qos2] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
-%% @see QoS 2
+%% gen_statem for state machine
+%% QoS 2
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -709,8 +725,8 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrel_qos2,
 %% state  : [wait_pubrec_qos2] -> [connected]
 %% trigger: receive pubrel packet
 %%
-%% @see gen_statem for state machine
-%% @see QoS 2
+%% gen_statem for state machine
+%% QoS 2
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -734,8 +750,8 @@ handle_event(cast, ?PUBREL_PACKET(RemotePacketId), wait_pubrec_qos2,
 %% state  : [wait_pubrec_qos2] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
-%% @see QoS 2
+%% gen_statem for state machine
+%% QoS 2
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -762,7 +778,7 @@ handle_event(state_timeout, {ResendTimes}, wait_pubrec_qos2,
 %% state  : [wait_pingreq] -> [connected]
 %% trigger: receive pingresp packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -779,7 +795,7 @@ handle_event(cast, ?PINGRESP_PACKET(), wait_pingreq, State) ->
 %% state  : [wait_pingreq] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -802,7 +818,7 @@ handle_event(state_timeout, {ResendTimes}, wait_pingreq,
 %% state  : [wait_asleep] -> [asleep]
 %% trigger: receive pingresp packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -819,7 +835,7 @@ handle_event(cast, ?DISCONNECT_PACKET(), wait_asleep, State = #state{waiting_dat
 %% state  : [wait_pingreq] -> [connected]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -846,7 +862,7 @@ handle_event(state_timeout, {ResendTimes}, wait_asleep,
 %% state  : [connected] -> [wait_reg]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -856,7 +872,7 @@ handle_event(cast, {reg, TopicName}, connected,
   ?LOG_STATE(debug, "Request Gateway to register and then wait for regack, topic name: ~p",
              [TopicName], State),
   #config{ack_timeout = AckTimeout} = Config,
-  emqttsn_send:send_register(Config, Socket, PacketId, TopicName),
+  emqttsn_send:send_register(Config, Socket, TopicName, PacketId),
   {next_state, wait_reg,
    State#state{waiting_data = {reg, TopicName}},
    {state_timeout, AckTimeout, {?RESEND_TIME_BEG}}};
@@ -867,7 +883,7 @@ handle_event(cast, {reg, TopicName}, connected,
 %% state  : [connected] -> [wait_sub]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -878,7 +894,7 @@ handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
              wait for suback, type: ~p, topic: ~p",
              [TopicIdType, TopicIdOrName], State),
   #config{ack_timeout = AckTimeout} = Config,
-  emqttsn_send:send_subscribe(Config, Socket, false, TopicIdType, PacketId, TopicIdOrName, MaxQos),
+  emqttsn_send:send_subscribe(Config, Socket, false, TopicIdType, TopicIdOrName, MaxQos, PacketId),
   {next_state, wait_sub, State#state{waiting_data = {sub, TopicIdType, TopicIdOrName, MaxQos}}, 
                                      {state_timeout, AckTimeout, {?RESEND_TIME_BEG}}};
 
@@ -888,7 +904,7 @@ handle_event(cast, {sub, TopicIdType, TopicIdOrName, MaxQos}, connected,
 %% state  : [connected] -> [wait_unsub]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
                                      
@@ -899,7 +915,7 @@ handle_event(cast, {unsub, TopicIdType, TopicIdOrName}, connected,
                      wait for suback, type: ~p, topic: ~p",
                      [TopicIdType, TopicIdOrName], State),
   #config{ack_timeout = AckTimeout} = Config,
-  emqttsn_send:send_unsubscribe(Config, Socket, TopicIdType, PacketId, TopicIdOrName),
+  emqttsn_send:send_unsubscribe(Config, Socket, TopicIdType, TopicIdOrName, PacketId),
   {next_state, wait_unsub, State#state{waiting_data = {unsub, TopicIdType, TopicIdOrName}}, 
                                      {state_timeout, AckTimeout, {?RESEND_TIME_BEG}}};
 %%------------------------------------------------------------------------------
@@ -914,7 +930,7 @@ handle_event(cast, {unsub, TopicIdType, TopicIdOrName}, connected,
 %% QoS 2: [connected] -> [wait_pub_qos2]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -925,9 +941,9 @@ handle_event(cast, {pub, Retain, TopicIdType, TopicIdOrName, Message}, connected
     [TopicIdType, TopicIdOrName, Retain], State),
   #config{ack_timeout = AckTimeout,
           max_message_each_topic = TopicMaxMsg, pub_qos = Qos} = Config,
-  TopicId = emqttsn_utils:get_topic_id(TopicIdType, TopicIdOrName, NameMap),
+  TopicId = get_topic_id(TopicIdType, TopicIdOrName, NameMap),
   emqttsn_send:send_publish(Config, Socket, Qos, ?DUP_FALSE, Retain,
-                            TopicIdType, TopicIdOrName, PacketId, Message),
+                            TopicIdType, TopicIdOrName, Message, PacketId),
 
   case Qos of
     ?QOS_0 ->
@@ -953,7 +969,7 @@ handle_event(cast, {pub, Retain, TopicIdType, TopicIdOrName, Message}, connected
 %% QoS 2  : [connected] -> [wait_pubrec_qos2]
 %% trigger: receive publish packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -970,7 +986,7 @@ handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos,
 %% state  : keep [connected]
 %% trigger: receive pingreq packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -991,7 +1007,7 @@ handle_event(cast, ?PINGREQ_PACKET(ClientId), connected,
 %% state  : [connected] -> [wait_pingreq]
 %% trigger: state timeout
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1011,7 +1027,7 @@ handle_event(state_timeout, ping, connected,
 %% state  : [connected] -> [asleep]
 %% trigger: manual call + valid sleep interval
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1046,7 +1062,7 @@ handle_event(cast, {sleep, Interval}, connected,
 %% state  : [connect_other] -> [initialized]
 %% trigger: enter state + traverse known gateways exceed max times
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1057,8 +1073,8 @@ handle_event(enter, _OldState, connect_other,
   ?LOG_STATE(debug, "Connect to other available gateway", [], State),
   #config{reconnect_max_times = MaxTry} = Config,
   Desperate = TryTimes > MaxTry,
-  AvailableGW = emqttsn_utils:next_gw(Name, FormerId),
-  FirstGW = emqttsn_utils:first_gw(Name),
+  AvailableGW = next_gw(Name, FormerId),
+  FirstGW = first_gw(Name),
   if FirstGW =:= AvailableGW
     -> NewState = State#state{gw_failed_cycle = TryTimes + 1}
   end,
@@ -1081,7 +1097,7 @@ handle_event(enter, _OldState, connect_other,
 %% state  : [asleep] -> [awake]
 %% trigger: state timeout
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1102,7 +1118,7 @@ handle_event(state_timeout, ready_awake, asleep, State = #state{config = Config,
 %% QoS 2  : [awake] -> [wait_pubrec_qos2]
 %% trigger: receive publish packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1118,7 +1134,7 @@ handle_event(cast, Packet = ?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetai
 %% state  : [awake] -> [asleep]
 %% trigger: receive pingresp packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1137,7 +1153,7 @@ handle_event(cast, ?PINGRESP_PACKET(), awake, State = #state{config = Config}) -
 %% state  : [awake] -> [asleep]
 %% trigger: state timeout + cannot resend
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1161,7 +1177,7 @@ handle_event(state_timeout, {recv_awake, ResendTimes}, awake,
 %% state  : keep Any
 %% trigger: receive searchgw packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1169,7 +1185,7 @@ handle_event(cast, {?SEARCHGW_PACKET(Radius), Host, Port}, _StateName,
              State = #state{name = Name, socket = Socket, config = Config}) ->
   ?LOG_STATE(debug, "Answer for gateway address ~p:~p request from other clients",
              [Host, Port], State),
-  FirstGW = emqttsn_utils:first_gw(Name),
+  FirstGW = first_gw(Name),
   case FirstGW of
     #gw_info{id = GateWayId, host = GWHost} ->
       emqttsn_send:send_gwinfo(Config, Socket, Host, Port, Radius, GateWayId, GWHost);
@@ -1183,7 +1199,7 @@ handle_event(cast, {?SEARCHGW_PACKET(Radius), Host, Port}, _StateName,
 %% state  : keep [connected]/[awake]
 %% trigger: receive register packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1195,7 +1211,7 @@ handle_event(cast, ?REGISTER_PACKET(TopicId, PacketId, TopicName),
     [TopicId, TopicName, PacketId], State),
   NewIdMap = dict:store(TopicId, TopicName, IdMap),
   NewNameMap = dict:store(TopicName, TopicId, NameMap),
-  emqttsn_send:send_regack(Config, Socket, TopicId, PacketId, ?RC_ACCEPTED),
+  emqttsn_send:send_regack(Config, Socket, TopicId, ?RC_ACCEPTED, PacketId),
   {keep_state, State#state{topic_id_name = NewIdMap, topic_name_id = NewNameMap,
                            next_packet_id = next_packet_id(PacketId)}};
 
@@ -1205,7 +1221,7 @@ handle_event(cast, ?REGISTER_PACKET(TopicId, PacketId, TopicName),
 %% state  : [asleep]/[awake]/[connected] -> [initialized]
 %% trigger: manual call + at [asleep]/[awake]/[connected]
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1223,7 +1239,7 @@ handle_event(cast, disconnect, StateName,
 %% state  : [asleep]/[awake] -> [found]
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1242,7 +1258,7 @@ handle_event(cast, connect, StateName, State)
 %% state  : keep Any
 %% trigger: auto called by get_msg
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1261,7 +1277,7 @@ handle_event(cast, {reset_msg, MsgManager, MsgCounter}, _StateName, State) ->
 %% state  : keep Any
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1279,7 +1295,7 @@ handle_event(cast, {config, Config}, _StateName, State) ->
 %% state  : keep Any
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1295,7 +1311,7 @@ handle_event({call, From}, get_state, _StateName, State) ->
 %% state  : keep Any
 %% trigger: manual call
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1314,7 +1330,7 @@ handle_event({call, From}, get_state_name, StateName, State) ->
 %% state  : Any -> [found]
 %% trigger: receive disconnect packet
 
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1336,7 +1352,7 @@ handle_event(cast, ?DISCONNECT_PACKET(), StateName, State)
 %% event  : {recv, {Host, Port, Bin}} -> {Packet, Host, Port}/Packet
 %% trigger: receive other packet
 %%
-%% @see gen_statem for state machine
+%% gen_statem for state machine
 %% @end
 %%------------------------------------------------------------------------------
 
@@ -1411,18 +1427,70 @@ recv_publish(?PUBLISH_PACKET(_RemoteDup, _RemoteQos, _RemoteRetain, TopicIdType,
     State = #state{topic_id_use_qos = QosMap, config = Config, socket = Socket, topic_name_id = NameMap}, FromStateName) ->
   
   #config{ack_timeout = AckTimeout, max_message_each_topic = TopicMaxMsg} = Config,
-  TopicId = emqttsn_utils:get_topic_id(TopicIdType, TopicIdOrName, NameMap),
+  TopicId = get_topic_id(TopicIdType, TopicIdOrName, NameMap),
   Qos = dict:fetch(TopicId, QosMap),
   NewState = emqttsn_utils:store_msg(State, TopicId, TopicMaxMsg, Message),
   case Qos of
     ?QOS_0 -> 
       {keep_state, NewState#state{next_packet_id = next_packet_id(PacketId)}};
     ?QOS_1 -> 
-      emqttsn_send:send_puback(Config, Socket, TopicId, PacketId, ?RC_ACCEPTED),
+      emqttsn_send:send_puback(Config, Socket, TopicId, ?RC_ACCEPTED, PacketId),
       {keep_state, NewState#state{next_packet_id = PacketId}};
     ?QOS_2 -> 
       emqttsn_send:send_pubrec(Config, Socket, PacketId),
       {next_state, wait_pubrec_qos2,
                NewState#state{next_packet_id = PacketId, waiting_data = {FromStateName}},
                {state_timeout, AckTimeout, {?RESEND_TIME_BEG}}}
+  end.
+
+%%--------------------------------------------------------------------
+%% packet_id generator for state machine
+%%--------------------------------------------------------------------
+
+-spec next_packet_id(packet_id()) -> packet_id().
+next_packet_id(?MAX_PACKET_ID) ->
+  1;
+next_packet_id(Id) ->
+  Id + 1.
+
+-spec get_topic_id(topic_id_type(),
+                   topic_id() | string(),
+                   dict:dict(string(), topic_id())) ->
+                    topic_id().
+get_topic_id(TopicIdType, TopicIdOrName, NameMap) ->
+  case TopicIdType of
+    ?PRE_DEF_TOPIC_ID ->
+      TopicIdOrName;
+    ?TOPIC_ID ->
+      TopicIdOrName;
+    ?SHORT_TOPIC_NAME ->
+      dict:fetch(TopicIdOrName, NameMap)
+  end.
+
+-spec first_gw(string()) -> #gw_info{} | none.
+first_gw(Name) ->
+  NameGW = list_to_atom(Name),
+  NextKey = ets:first(NameGW),
+  case NextKey of
+    '$end_of_table' ->
+      none;
+    Key ->
+      {_, GWInfo} = ets:lookup_element(NameGW, Key, 1),
+      GWInfo
+  end.
+
+-spec next_gw(string(), gw_id()) -> #gw_info{} | none.
+next_gw(Name, GWId) ->
+  NameGW = list_to_atom(Name),
+  NextKey = ets:next(NameGW, GWId),
+  FirstKey = ets:first(NameGW),
+  case {NextKey, FirstKey} of
+    {'$end_of_table', '$end_of_table'} ->
+      none;
+    {'$end_of_table', Key} ->
+      {_, GWInfo} = ets:lookup_element(NameGW, Key, 1),
+      GWInfo;
+    {Key, _} ->
+      {_, GWInfo} = ets:lookup_element(NameGW, Key, 1),
+      GWInfo
   end.

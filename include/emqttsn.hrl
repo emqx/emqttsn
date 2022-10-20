@@ -13,21 +13,31 @@
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
 %%--------------------------------------------------------------------
--include("version.hrl").
 
--ifndef(EMQTT_HRL).
+-ifndef(EMQTTSN_HRL).
 
--define(EMQTT_HRL, true).
+-define(EMQTTSN_HRL, true).
 -define(DUP_TRUE, true).
 -define(DUP_FALSE, false).
 -define(RESEND_TIME_BEG, 0).
 
 -type bin_1_byte() :: <<_:8>>.
--type bin_2_byte() :: <<_:16>>.
-
--define(CLIENT_ID, "client").
-
 -type client() :: pid().
+
+%%--------------------------------------------------------------------
+%% MQTT-SN QoS Levels
+%%--------------------------------------------------------------------
+
+%% At most once
+-define(QOS_0, 0).
+%% At least once
+-define(QOS_1, 1).
+%% Exactly once
+-define(QOS_2, 2).
+%% Simple publish for Qos Level -1
+-define(QOS_neg, 3).
+
+-type qos() :: ?QOS_0 | ?QOS_1 | ?QOS_2 | ?QOS_neg.
 
 %%%--------------------------------------------------------------------
 %% Maximum ClientId Length.
@@ -118,6 +128,14 @@
          'DISCONNECT', 'WILLTOPICUPD', 'WILLTOPICRESP', 'WILLMSGUPD', 'WILLMSGRESP']).
 
 %%--------------------------------------------------------------------
+%% MQTT-SN Packet Info
+%%--------------------------------------------------------------------
+
+-type packet_id() :: 0..16#FFFF.
+-type topic_id() :: 0..16#FFFF.
+-type gw_id() :: 0..16#FF.
+
+%%--------------------------------------------------------------------
 %% MQTT-SN V1.2 Reason Codes
 %%--------------------------------------------------------------------
 
@@ -159,17 +177,6 @@
 %% Default address
 -define(DEFAULT_ADDRESS, {127, 0, 0, 1}).
 
-%% Retain Handling
-% -define(DEFAULT_SUBOPTS, #{
-%     rh => 0,
-%     %% Retain as Publish
-%     rap => 0,
-%     %% No Local
-%     nl => 0,
-%     %% QoS
-%     qos => 0
-% }).
-
 %% MQTT-SN flag variable
 
 -record(mqttsn_packet_flag,
@@ -188,11 +195,7 @@
 -record(mqttsn_packet_gwinfo,
         {source :: msg_src(), gateway_id :: gw_id(), gateway_add = ?DEFAULT_ADDRESS :: host()}).
 -record(mqttsn_packet_connect,
-        {proto_name = ?MQTTSN_PROTO_V1_2_NAME :: string(),
-         proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
-         flag :: flag(),
-         duration :: non_neg_integer(),
-         client_id :: string()}).
+        {flag :: flag(), duration :: non_neg_integer(), client_id :: string()}).
 -record(mqttsn_packet_connack, {return_code :: return_code()}).
 -record(mqttsn_packet_willtopicreq, {}).
 -record(mqttsn_packet_willtopic,
@@ -364,7 +367,8 @@
 -define(PUBLISH_PACKET(Dup, Qos, Retain, TopicIdType, TopicIdOrName, PacketId, Message),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?PUBLISH},
                        payload =
-                               #mqttsn_packet_publish{flag = #mqttsn_packet_flag{dup = Dup,
+                               #mqttsn_packet_publish{flag =
+                                                              #mqttsn_packet_flag{dup = Dup,
                                                                                   qos = Qos,
                                                                                   retain = Retain,
                                                                                   topic_id_type =
@@ -474,5 +478,117 @@
 -define(WILLMSGRESP_PACKET(ReturnCode),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?WILLMSGRESP},
                        payload = #mqttsn_packet_willmsgresp{return_code = ReturnCode}}).
+
+%%--------------------------------------------------------------------
+%% MQTT-SN Protocol Default argument
+%%--------------------------------------------------------------------
+
+-define(DEFAULT_RETRY_INTERVAL, 30000).
+-define(DEFAULT_ACK_TIMEOUT, 30000).
+-define(DEFAULT_CONNECT_TIMEOUT, 60000).
+-define(DEFAULT_SEARCH_GW_INTERVAL, 60000).
+-define(DEFAULT_PORT, 1884).
+-define(DEFAULT_RADIUS, 0).
+% TODO: check argument whether is right
+-define(DEFAULT_PING_INTERVAL, 30000).
+-define(DEFAULT_MAX_RESEND, 3).
+-define(DEFAULT_MAX_RECONNECT, 3).
+-define(MAX_PACKET_ID, 16#ffff).
+-define(MAX_PACKET_SIZE, 16#ffff).
+
+-type host() :: inet:ip4_address().
+
+-define(CLIENT_ID, "client").
+
+%%--------------------------------------------------------------------
+%% MQTT-SN Protocol Version and Names
+%%--------------------------------------------------------------------
+
+-define(MQTTSN_PROTO_V1_2, 2).
+-define(MQTTSN_PROTO_V1_2_NAME, "MQTT-SN").
+-define(PROTOCOL_NAMES, [{?MQTTSN_PROTO_V1_2, ?MQTTSN_PROTO_V1_2_NAME}]).
+
+-type version() :: ?MQTTSN_PROTO_V1_2.
+
+%%--------------------------------------------------------------------
+%% MQTT-SN Client Arguments
+%%--------------------------------------------------------------------
+
+-type msg_handler() :: fun((topic_id(), string()) -> term()).
+-type option() ::
+        {strict_mode, boolean()} | {clean_session, boolean()} | {max_size, pos_integer()} |
+        {auto_discover, boolean()} | {ack_timeout, non_neg_integer()} |
+        {keep_alive, non_neg_integer()} | {resend_no_qos, boolean()} |
+        {max_resend, non_neg_integer()} | {retry_interval, non_neg_integer()} |
+        {connect_timeout, non_neg_integer()} | {search_gw_interval, non_neg_integer()} |
+        {reconnect_max_times, non_neg_integer()} | {max_message_each_topic, non_neg_integer()} |
+        {msg_handler, [msg_handler()]} | {send_port, inet:port_number()} | {host, host()} |
+        {port, inet:port_number()} | {client_id, string()} | {proto_ver, version()} |
+        {proto_name, string()} | {radius, non_neg_integer()} | {duration, non_neg_integer()} |
+        {qos, qos()} | {will, boolean()} | {will_topic, string()} | {will_msg, string()}.
+
+-record(config,
+        {% system action config
+         strict_mode = false :: boolean(),
+         clean_session = true :: boolean(), max_size = ?MAX_PACKET_SIZE :: pos_integer(),
+         auto_discover = true :: boolean(),
+         ack_timeout = ?DEFAULT_ACK_TIMEOUT :: non_neg_integer(),
+         keep_alive = ?DEFAULT_PING_INTERVAL :: non_neg_integer(),
+         resend_no_qos = true :: boolean(), max_resend = ?DEFAULT_MAX_RESEND :: non_neg_integer(),
+         retry_interval = ?DEFAULT_RETRY_INTERVAL :: non_neg_integer(),
+         connect_timeout = ?DEFAULT_CONNECT_TIMEOUT :: non_neg_integer(),
+         search_gw_interval = ?DEFAULT_SEARCH_GW_INTERVAL :: non_neg_integer(),
+         reconnect_max_times = ?DEFAULT_MAX_RECONNECT :: non_neg_integer(),
+         max_message_each_topic = 100 :: non_neg_integer(),
+         msg_handler = [fun emqttsn_utils:default_msg_handler/2] :: [msg_handler()],
+         %local config
+         send_port = 0 :: inet:port_number(),
+         % protocol config
+         client_id = ?CLIENT_ID :: string(),
+         proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
+         proto_name = ?MQTTSN_PROTO_V1_2_NAME :: string(), radius = 3 :: non_neg_integer(),
+         duration = 50 :: non_neg_integer(), will_qos = ?QOS_0 :: qos(),
+         recv_qos = ?QOS_0 :: qos(), pub_qos = ?QOS_0 :: qos(), will = false :: boolean(),
+         will_topic = "" :: string(), will_msg = "" :: string()}).
+
+-type config() :: #config{}.
+
+%%--------------------------------------------------------------------
+%% gateway address manager
+%%--------------------------------------------------------------------
+-define(MANUAL, 2).
+-define(BROADCAST, 1).
+-define(PARAPHRASE, 0).
+
+-type gw_src() :: ?MANUAL | ?BROADCAST | ?PARAPHRASE.
+
+-record(gw_info,
+        {id :: gw_id(), host :: host(), port :: inet:port_number(), from :: gw_src()}).
+-record(gw_collect,
+        {id = 0 :: gw_id(),
+         host = ?DEFAULT_ADDRESS :: host(),
+         port = ?DEFAULT_PORT :: inet:port_number()}).
+
+-type gw_collect() :: #gw_collect{}.
+
+%%--------------------------------------------------------------------
+%% permanent information for state machine
+%%--------------------------------------------------------------------
+
+-record(state,
+        {name :: string(),
+         config :: #config{},
+         waiting_data = {} :: tuple(),
+         socket :: inet:socket(),
+         next_packet_id = 0 :: non_neg_integer(),
+         msg_manager = dict:new() :: dict:dict(topic_id(), queue:queue()),
+         msg_counter = dict:new() :: dict:dict(topic_id(), non_neg_integer()),
+         topic_id_name = dict:new() :: dict:dict(topic_id(), string()),
+         topic_name_id = dict:new() :: dict:dict(string(), topic_id()),
+         topic_id_use_qos = dict:new() :: dict:dict(topic_id(), qos()),
+         active_gw = #gw_collect{} :: gw_collect(),
+         gw_failed_cycle = 0 :: non_neg_integer()}).
+
+-type state() :: #state{}.
 
 -endif.

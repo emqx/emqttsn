@@ -14,15 +14,16 @@
 %% limitations under the License.
 %%-------------------------------------------------------------------------
 
+%% @doc MQTT-SN frame parser and serializer
+%% 
+%% @private
 -module(emqttsn_frame).
 
 -include_lib("stdlib/include/assert.hrl").
--include_lib("eunit/include/eunit.hrl").
 
--include("packet.hrl").
--include("config.hrl").
+-include("emqttsn.hrl").
 
--export([parse/1, parse/2, serialize/2, parse_leading_len/2]).
+-export([parse/1, parse/2, serialize/1, serialize/2, parse_leading_len/2]).
 
 -type parse_result() :: {ok, #mqttsn_packet{}} | {error, term()}.
 
@@ -74,15 +75,19 @@ parse_leading_len(<<16#01:8/integer, Length:16/integer, Rest/binary>>, Config) -
   SelfLength = 3,
   #config{max_size = MaxSize} = Config,
   case Length =< MaxSize of
-    true -> {ok, Length, SelfLength, Rest};
-    false -> {error, frame_too_large}
+    true ->
+      {ok, Length, SelfLength, Rest};
+    false ->
+      {error, frame_too_large}
   end;
 parse_leading_len(<<Length:8/integer, Rest/binary>>, Config) ->
   SelfLength = 1,
   #config{max_size = MaxSize} = Config,
   case Length =< MaxSize of
-    true -> {ok, Length, SelfLength, Rest};
-    false -> {error, frame_too_large}
+    true ->
+      {ok, Length, SelfLength, Rest};
+    false ->
+      {error, frame_too_large}
   end.
 
 % parse the message type to a header of packet
@@ -135,18 +140,16 @@ parse_payload(<<SerFlag:1/binary,
   #mqttsn_packet_flag{topic_id_type = TopicIdType} = Flag,
   case TopicIdType of
     ?SHORT_TOPIC_NAME ->
-      #mqttsn_packet_publish{
-        flag = Flag,               
-        topic_id_or_name = binary_to_list(TopicIdOrNameBin),        
-        packet_id = MsgId,             
-        message = Message};
+      #mqttsn_packet_publish{flag = Flag,
+                             topic_id_or_name = binary_to_list(TopicIdOrNameBin),
+                             packet_id = MsgId,
+                             message = Message};
     _ ->
       <<TopicIdOrName:16/integer>> = TopicIdOrNameBin,
-      #mqttsn_packet_publish{
-        flag = Flag,
-        topic_id_or_name = TopicIdOrName,
-        packet_id = MsgId,
-        message = Message}
+      #mqttsn_packet_publish{flag = Flag,
+                             topic_id_or_name = TopicIdOrName,
+                             packet_id = MsgId,
+                             message = Message}
   end;
 parse_payload(<<TopicId:16/integer, MsgId:16/integer, ReturnCode:8/integer>>,
               #mqttsn_packet_header{type = ?PUBACK},
@@ -222,9 +225,13 @@ parse_disconnect_msg(<<>>, _Config) ->
 parse_disconnect_msg(<<Duration:16/integer>>, _Config) ->
   #mqttsn_packet_disconnect{empty_packet = false, duration = Duration}.
 
-% %%--------------------------------------------------------------------
-% %% Serialize MQTT Packet
-% %%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Serialize MQTT Packet
+%%--------------------------------------------------------------------
+
+-spec serialize(#mqttsn_packet{}) -> bitstring().
+serialize(Packet) ->
+  serialize(Packet, #config{}).
 
 -spec serialize(#mqttsn_packet{}, #config{}) -> bitstring().
 serialize(#mqttsn_packet{header = Header, payload = Payload}, Config) ->
@@ -334,7 +341,6 @@ serialize_payload(#mqttsn_packet_publish{flag = Flag,
       TopicId = TopicIdOrName,
       <<SerFlag:1/binary, TopicId:16/integer, MsgId:16/integer, MessageBin/binary>>
   end;
-  
 serialize_payload(#mqttsn_packet_puback{topic_id = TopicId,
                                         packet_id = MsgId,
                                         return_code = ReturnCode},
@@ -377,7 +383,6 @@ serialize_payload(#mqttsn_packet_pingresp{}, _Config) ->
   <<>>;
 serialize_payload(#mqttsn_packet_disconnect{} = Bin, Config) ->
   serialize_disconnect(Bin, Config);
-
 serialize_payload(#mqttsn_packet_willtopicupd{} = Bin, Config) ->
   serialize_willtopicupd(Bin, Config);
 serialize_payload(#mqttsn_packet_willtopicresp{return_code = ReturnCode}, _Config) ->
@@ -386,6 +391,7 @@ serialize_payload(#mqttsn_packet_willmsgupd{will_msg = WillMsg}, _Config) ->
   list_to_binary(WillMsg);
 serialize_payload(#mqttsn_packet_willmsgresp{return_code = ReturnCode}, _Config) ->
   <<ReturnCode:8/integer>>.
+
 % serialize willTopic packet payload
 -spec serialize_will_topic(#mqttsn_packet_willtopic{}, #config{}) -> iodata().
 serialize_will_topic(#mqttsn_packet_willtopic{empty_packet = true}, _Config) ->

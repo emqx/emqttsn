@@ -1,13 +1,27 @@
+%%-------------------------------------------------------------------------
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%-------------------------------------------------------------------------
+
 -module(emqttsn_protocol_SUITE).
-
--include("packet.hrl").
--include("config.hrl").
--include("logger.hrl").
-
--include_lib("eunit/include/eunit.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
+
+-include("emqttsn.hrl").
+
+-include_lib("eunit/include/eunit.hrl").
 
 -define(HOST, {127, 0, 0, 1}).
 -define(PORT, 1884).
@@ -263,8 +277,7 @@ t_unsubscribe(_Cfg) ->
     % will not receive any message
     {ok, _, ClientRecv, _} =
         emqttsn:start_link("judgement_7",
-                           [{msg_handler,
-                             [fun(_, _RecvMsg) -> ?_test(false) end]}]),
+                           [{msg_handler, [fun(_, _RecvMsg) -> ?_test(false) end]}]),
     ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientRecv, GateWayId, Block),
     ok = emqttsn:subscribe(ClientRecv, TopicIdType, TopicName, Qos, Block),
@@ -289,7 +302,7 @@ t_sleeping(_Cfg) ->
     ok = emqttsn:add_host(Client, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(Client, GateWayId, Block),
 
-    emqttsn:sleep(Client, SleepInterval),
+    emqttsn:sleep(Client, SleepInterval, true),
 
     ?_assertEqual(asleep, emqttsn:get_state_name(Client)),
     timer:sleep(2000),

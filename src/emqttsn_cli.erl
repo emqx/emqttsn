@@ -1,12 +1,31 @@
+%%-------------------------------------------------------------------------
+%% Copyright (c) 2020-2022 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%-------------------------------------------------------------------------
+
+%% @doc command tool for MQTT-SN client
+%%
+%% Caution: not need in most cases, unsless you 
+%% want to test command line, do not use it.
+%%
 -module(emqttsn_cli).
 
--include("version.hrl").
--include("packet.hrl").
--include("config.hrl").
+%% @headerfile "emqttsn.hrl"
+
+-include("emqttsn.hrl").
 
 -export([main/1]).
-
--import(proplists, [get_value/2]).
 
 -type sub_cmd() :: pub | sub.
 
@@ -94,6 +113,15 @@
         ++ ?CONN_LONG_OPTS
         ++ []).
 
+%% @doc Intro of a MQTT-SN client line call
+%%
+%% Caution: not need in most cases, unsless you 
+%% want to test command line, do not use it.
+%% 
+%% @param Args array of arguments
+%%
+%% @returns A client object
+%% @end
 -spec main([string()]) -> ok.
 main(["sub" | Argv]) ->
   {ok, {Opts, _Args}} = getopt:parse(?SUB_OPTS, Argv),
@@ -135,17 +163,17 @@ main(PubSub, Opts) ->
 
 -spec publish(emqtsn:client(), config(), [term()]) -> ok.
 publish(Client, _Config, Opts) ->
-  Message = get_value(message, Opts),
-  Retain = get_value(retain, Opts),
-  TopicIdType = get_value(topic_id_type, Opts),
+  Message = proplists:get_value(message, Opts),
+  Retain = proplists:get_value(retain, Opts),
+  TopicIdType = proplists:get_value(topic_id_type, Opts),
   TopicIdOrName =
     case TopicIdType of
       ?SHORT_TOPIC_NAME ->
-        get_value(topic_name, Opts);
+        proplists:get_value(topic_name, Opts);
       ?TOPIC_ID ->
-        get_value(topic_id, Opts);
+        proplists:get_value(topic_id, Opts);
       ?PRE_DEF_TOPIC_ID ->
-        get_value(topic_id, Opts)
+        proplists:get_value(topic_id, Opts)
     end,
   emqttsn:publish(Client, Retain, TopicIdType, TopicIdOrName, Message, true),
   ok.
@@ -157,17 +185,17 @@ loop_recv(Socket) ->
 
 -spec subscribe(emqtsn:client(), config(), [term()]) -> ok.
 subscribe(Client, _Config, Opts) ->
-  TopicIdType = get_value(topic_id_type, Opts),
+  TopicIdType = proplists:get_value(topic_id_type, Opts),
   TopicIdOrName =
     case TopicIdType of
       ?SHORT_TOPIC_NAME ->
-        get_value(topic_name, Opts);
+        proplists:get_value(topic_name, Opts);
       ?TOPIC_ID ->
-        get_value(topic_id, Opts);
+        proplists:get_value(topic_id, Opts);
       ?PRE_DEF_TOPIC_ID ->
-        get_value(topic_id, Opts)
+        proplists:get_value(topic_id, Opts)
     end,
-  MaxQos = get_value(qos, Opts),
+  MaxQos = proplists:get_value(qos, Opts),
   emqttsn:subscribe(Client, TopicIdType, TopicIdOrName, MaxQos, true),
   ok.
 
