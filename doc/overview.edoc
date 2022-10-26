@@ -1,0 +1,21 @@
+@author Lenery Chen <starkind1997@gmail.com>
+@copyright MIT
+@version 1.0.0
+@title Enjoy your tour of MQTT-SN communication!
+@doc emqttsn is a light-weight MQTT-SN client, we provide 
+three ways to use this client.
+
+<table width="600" border="1">
+<tr>
+  <td>low-level API</td>
+  <td>emqttsn_udp, emqttsn_send</td>
+</tr>
+<tr>
+  <td>high-level API</td>
+  <td>emqttsn</td>
+</tr>
+<tr>
+  <td>command line tool</td>
+  <td>emqttsn_cli</td>
+</tr>
+</table>
