@@ -31,7 +31,8 @@
 %%--------------------------------------------------------------------
 
 all() ->
-    [t_publish_recv_async,
+    [t_connect_eager,
+     t_publish_recv_async,
      t_publish_recv_sync,
      t_low_level_com,
      t_merge_com,
@@ -52,6 +53,15 @@ end_per_suite(Cfg) ->
 %% tests
 %%--------------------------------------------------------------------
 
+t_connect_eager(_Cfg) ->
+    GateWayId = 1,
+
+    Block = false,
+
+    {ok, ClientSend, _} = emqttsn:start_link("sender_e", []),
+    ok = emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
+    ok = emqttsn:connect(ClientSend, GateWayId, Block).
+
 t_publish_recv_sync(_Cfg) ->
     GateWayId = 1,
     Retain = false,
@@ -62,13 +72,13 @@ t_publish_recv_sync(_Cfg) ->
 
     Block = true,
 
-    {ok, _, ClientSend, _} = emqttsn:start_link("sender_0", []),
+    {ok, ClientSend, _} = emqttsn:start_link("sender_0", []),
     emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
     emqttsn:connect(ClientSend, GateWayId, Block),
     emqttsn:register(ClientSend, TopicName, Block),
 
     % register a message consumer which will sync consumes messages
-    {ok, _, ClientRecv, _} =
+    {ok, ClientRecv, _} =
         emqttsn:start_link("judgement_0",
                            [{msg_handler,
                              [fun(_, RecvMsg) -> ?_assertEqual(Message, RecvMsg) end]}]),
@@ -78,8 +88,8 @@ t_publish_recv_sync(_Cfg) ->
 
     emqttsn:publish(ClientSend, Retain, TopicIdType, TopicName, Message, Block),
 
-    emqttsn:stop(ClientSend),
-    emqttsn:stop(ClientRecv),
+    emqttsn:finalize(ClientSend),
+    emqttsn:finalize(ClientRecv),
     ok.
 
 t_publish_recv_async(_Cfg) ->
@@ -91,14 +101,13 @@ t_publish_recv_async(_Cfg) ->
     Qos = ?QOS_0,
 
     Block = true,
-
-    {ok, _, ClientSend, _} = emqttsn:start_link("sender_1", []),
+    {ok, ClientSend, _} = emqttsn:start_link("sender_1", []),
     ok = emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientSend, GateWayId, Block),
     ok = emqttsn:register(ClientSend, TopicName, Block),
 
     % clear default message consumer
-    {ok, _, ClientRecv, _} = emqttsn:start_link("judgement_1", [{msg_handler, []}]),
+    {ok, ClientRecv, _} = emqttsn:start_link("judgement_1", [{msg_handler, []}]),
     ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientRecv, GateWayId, Block),
     ok = emqttsn:subscribe(ClientRecv, TopicIdType, TopicName, Qos, Block),
@@ -110,8 +119,8 @@ t_publish_recv_async(_Cfg) ->
     {ok, RecvMsgs} = emqttsn_utils:get_one_topic_msg(ClientRecv, TopicId, Block),
     ?_assertEqual([Message], RecvMsgs),
 
-    emqttsn:stop(ClientSend),
-    emqttsn:stop(ClientRecv).
+    emqttsn:finalize(ClientSend),
+    emqttsn:finalize(ClientRecv).
 
 t_low_level_com(_Cfg) ->
     Config = #config{client_id = "low_level"},
@@ -141,13 +150,12 @@ t_merge_com(_Cfg) ->
 
     Block = true,
 
-    {ok, _, ClientSend, _} = emqttsn:start_link("sender_2", []),
+    {ok, ClientSend, Config} = emqttsn:start_link("sender_2", []),
     ok = emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientSend, GateWayId, Block),
 
     % stop state machine and turn to low-level API
-    #state{socket = Socket, config = Config} = emqttsn:get_state(ClientSend),
-    gen_statem:stop(ClientSend),
+    {ok, Socket} = emqttsn:stop(ClientSend),
 
     emqttsn_send:send_disconnect(Config, Socket),
     DisConnPacket = emqttsn_udp:recv(Socket),
@@ -163,12 +171,12 @@ t_connect_with_will(_Cfg) ->
 
     Block = true,
 
-    {ok, _, ClientSend, _} =
+    {ok, ClientSend, _} =
         emqttsn:start_link("sender_3",
                            [{will, true}, {will_topic, WillTopic}, {will_msg, WillMsg}]),
     emqttsn:add_host(ClientSend, Host, Port, GateWayId),
     emqttsn:connect(ClientSend, GateWayId, Block),
-    emqttsn:stop(ClientSend),
+    emqttsn:finalize(ClientSend),
     ok.
 
 t_publish_qos_neg(_Cfg) ->
@@ -181,7 +189,7 @@ t_publish_qos_neg(_Cfg) ->
     Block = true,
 
     % clear default message consumer
-    {ok, _, ClientRecv, _} = emqttsn:start_link("judgement_1", [{msg_handler, []}]),
+    {ok, ClientRecv, _} = emqttsn:start_link("judgement_1", [{msg_handler, []}]),
     ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientRecv, GateWayId, Block),
     ok = emqttsn:subscribe(ClientRecv, TopicIdType, TopicId, Qos, Block),
@@ -195,7 +203,7 @@ t_publish_qos_neg(_Cfg) ->
     {ok, RecvMsgs} = emqttsn_utils:get_one_topic_msg(ClientRecv, TopicId, Block),
     ?_assertEqual([Message], RecvMsgs),
 
-    emqttsn:stop(ClientRecv).
+    emqttsn:finalize(ClientRecv).
 
 t_publish_qos_1(_Cfg) ->
     GateWayId = 1,
@@ -207,13 +215,13 @@ t_publish_qos_1(_Cfg) ->
 
     Block = true,
 
-    {ok, _, ClientSend, _} = emqttsn:start_link("sender_5", [{pub_qos, Qos}]),
+    {ok, ClientSend, _} = emqttsn:start_link("sender_5", [{pub_qos, Qos}]),
     ok = emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientSend, GateWayId, Block),
     ok = emqttsn:register(ClientSend, TopicName, Block),
 
     % clear default message consumer
-    {ok, _, ClientRecv, _} = emqttsn:start_link("judgement_5", [{msg_handler, []}]),
+    {ok, ClientRecv, _} = emqttsn:start_link("judgement_5", [{msg_handler, []}]),
     ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientRecv, GateWayId, Block),
     ok = emqttsn:subscribe(ClientRecv, TopicIdType, TopicName, Qos, Block),
@@ -225,8 +233,8 @@ t_publish_qos_1(_Cfg) ->
     {ok, RecvMsgs} = emqttsn_utils:get_one_topic_msg(ClientRecv, TopicId, Block),
     ?_assertEqual([Message], RecvMsgs),
 
-    emqttsn:stop(ClientSend),
-    emqttsn:stop(ClientRecv).
+    emqttsn:finalize(ClientSend),
+    emqttsn:finalize(ClientRecv).
 
 t_publish_qos_2(_Cfg) ->
     GateWayId = 1,
@@ -238,13 +246,13 @@ t_publish_qos_2(_Cfg) ->
 
     Block = true,
 
-    {ok, _, ClientSend, _} = emqttsn:start_link("sender_6", [{pub_qos, Qos}]),
+    {ok, ClientSend, _} = emqttsn:start_link("sender_6", [{pub_qos, Qos}]),
     ok = emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientSend, GateWayId, Block),
     ok = emqttsn:register(ClientSend, TopicName, Block),
 
     % clear default message consumer
-    {ok, _, ClientRecv, _} = emqttsn:start_link("judgement_6", [{msg_handler, []}]),
+    {ok, ClientRecv, _} = emqttsn:start_link("judgement_6", [{msg_handler, []}]),
     ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientRecv, GateWayId, Block),
     ok = emqttsn:subscribe(ClientRecv, TopicIdType, TopicName, Qos, Block),
@@ -256,8 +264,8 @@ t_publish_qos_2(_Cfg) ->
     {ok, RecvMsgs} = emqttsn_utils:get_one_topic_msg(ClientRecv, TopicId, Block),
     ?_assertEqual([Message], RecvMsgs),
 
-    emqttsn:stop(ClientSend),
-    emqttsn:stop(ClientRecv).
+    emqttsn:finalize(ClientSend),
+    emqttsn:finalize(ClientRecv).
 
 t_unsubscribe(_Cfg) ->
     GateWayId = 1,
@@ -269,13 +277,13 @@ t_unsubscribe(_Cfg) ->
 
     Block = true,
 
-    {ok, _, ClientSend, _} = emqttsn:start_link("sender_7", []),
+    {ok, ClientSend, _} = emqttsn:start_link("sender_7", []),
     ok = emqttsn:add_host(ClientSend, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(ClientSend, GateWayId, Block),
     ok = emqttsn:register(ClientSend, TopicName, Block),
 
     % will not receive any message
-    {ok, _, ClientRecv, _} =
+    {ok, ClientRecv, _} =
         emqttsn:start_link("judgement_7",
                            [{msg_handler, [fun(_, _RecvMsg) -> ?_test(false) end]}]),
     ok = emqttsn:add_host(ClientRecv, ?HOST, ?PORT, GateWayId),
@@ -289,8 +297,8 @@ t_unsubscribe(_Cfg) ->
 
     timer:sleep(1000),
 
-    emqttsn:stop(ClientSend),
-    emqttsn:stop(ClientRecv).
+    emqttsn:finalize(ClientSend),
+    emqttsn:finalize(ClientRecv).
 
 t_sleeping(_Cfg) ->
     GateWayId = 1,
@@ -298,7 +306,7 @@ t_sleeping(_Cfg) ->
 
     Block = true,
 
-    {ok, _, Client, _} = emqttsn:start_link("sleeper_1", []),
+    {ok, Client, _} = emqttsn:start_link("sleeper_1", []),
     ok = emqttsn:add_host(Client, ?HOST, ?PORT, GateWayId),
     ok = emqttsn:connect(Client, GateWayId, Block),
 
@@ -307,4 +315,4 @@ t_sleeping(_Cfg) ->
     ?_assertEqual(asleep, emqttsn:get_state_name(Client)),
     timer:sleep(2000),
     ?_assertEqual(awake, emqttsn:get_state_name(Client)),
-    emqttsn:stop(Client).
+    emqttsn:finalize(Client).

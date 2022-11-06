@@ -1,22 +1,19 @@
-name: Test
+name: Dialyzer
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
 
 permissions:
   contents: read
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
-
     container:
-      image: erlang:25
+      image: erlang:24
 
     steps:
     - uses: actions/checkout@v3

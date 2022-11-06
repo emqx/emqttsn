@@ -23,21 +23,33 @@
 -include("emqttsn.hrl").
 -include("logger.hrl").
 
--export([store_msg/4, get_msg/2, get_msg/1, get_one_topic_msg/3, get_all_topic_id/1,
-         get_topic_id_from_name/3, store_gw/2, get_gw/2, get_gw/1, default_msg_handler/2]).
+-export([init_global_store/1, store_msg/4, get_msg/2, get_msg/1, get_one_topic_msg/3,
+         get_all_topic_id/1, get_topic_id_from_name/3, store_gw/2, get_gw/3, get_gw/2,
+         get_all_gw/2, get_all_gw/1, default_msg_handler/2]).
 
 %%--------------------------------------------------------------------
 %% gateway management lower utilities
 %%--------------------------------------------------------------------
 
+%% @doc init ets storage for gateway
+%%
+%% Caution: not need in most cases, if you don't
+%% know about mqttsn gateway storage, do not use it.
+%%
+%% @param Name unique name of client, used also as client id
+%%
+%% @end
 -spec init_global_store(string()) -> ok.
 init_global_store(Name) ->
   NameGW = list_to_atom(Name),
   Exist = ets:whereis(NameGW),
-  if Exist =:= undefined ->
-       _ = ets:new(NameGW, [{keypos, #gw_info.id}, named_table, private, set])
-  end,
-  ok.
+  case Exist of
+    undefined ->
+      _ = ets:new(NameGW, [{keypos, #gw_info.id}, named_table, public, set]),
+      ok;
+    _ ->
+      ok
+  end.
 
 %%--------------------------------------------------------------------
 %% message management lower utilities
@@ -245,19 +257,22 @@ get_topic_id_from_name(Client, TopicName, Block) ->
 %% @end
 -spec store_gw(string(), #gw_info{}) -> boolean().
 store_gw(Name, GWInfo = #gw_info{id = GWId, from = SRC}) ->
-  init_global_store(Name),
   NameGW = list_to_atom(Name),
   case ets:lookup(NameGW, GWId) of
-    [{_, #gw_info{from = OldSRC}}] when SRC < OldSRC ->
+    [#gw_info{from = OldSRC}] when SRC < OldSRC ->
       ?LOGP(warning, "insert into ~p for gateway id:~p failed", [Name, GWId]),
       false;
     [] ->
       ets:insert(NameGW, GWInfo),
       ?LOGP(notice, "insert into ~p for gateway id:~p", [Name, GWId]),
+      true;
+    [#gw_info{from = OldSRC}] when SRC >= OldSRC ->
+      ets:insert(NameGW, GWInfo),
+      ?LOGP(warning, "substitude gateway id:~p", [Name, GWId]),
       true
   end.
 
-%% @doc fetch existing gateway from ets by gateway id
+%% @doc fetch existing gateway from ets by gateway id unblockly(common used)
 %%
 %% @param Name unique name of client, used also as client id
 %% @param GWId gateway id to identify an gateway
@@ -265,21 +280,58 @@ store_gw(Name, GWInfo = #gw_info{id = GWId, from = SRC}) ->
 %% @end
 -spec get_gw(string(), gw_id()) -> #gw_info{} | none.
 get_gw(Name, GWId) ->
+  get_gw(Name, GWId, false).
+
+%% @doc fetch existing gateway from ets by gateway id
+%%
+%% @param Name unique name of client, used also as client id
+%% @param GWId gateway id to identify an gateway
+%% @param Block whether make a block/unblock request(wait until gateway is exist)
+%%
+%% @end
+-spec get_gw(string(), gw_id(), boolean()) -> #gw_info{} | none.
+get_gw(Name, GWId, Block) ->
   NameGW = list_to_atom(Name),
-  case ets:lookup(NameGW, GWId) of
-    [GWInfo = #gw_info{}] ->
+  case {ets:lookup(NameGW, GWId), Block} of
+    {[GWInfo = #gw_info{}], _} ->
       GWInfo;
-    [] ->
-      ?LOGP(warning, "not gateway to connect from ~p for selected gateway id:~p", [Name, GWId]),
-      none
+    {[], false} ->
+      ?LOGP(warning, "not gateway to fetch from ~p for selected gateway id:~p", [Name, GWId]),
+      none;
+    {[], true} ->
+      ?LOGP(debug,
+            "not gateway to fetch from ~p for selected gateway id:~p, try "
+            "again",
+            [Name, GWId]),
+      get_gw(Name, GWId, Block)
   end.
 
-%% @doc fetch all existing gateway from ets
+%% @doc fetch all existing gateway from ets unblockly(common used)
 %%
 %% @param Name unique name of client, used also as client id
 %%
 %% @end
--spec get_gw(string()) -> [#gw_info{}].
-get_gw(Name) ->
+-spec get_all_gw(string()) -> [#gw_info{}].
+get_all_gw(Name) ->
+  get_all_gw(Name, false).
+
+%% @doc fetch all existing gateway from ets
+%%
+%% @param Name unique name of client, used also as client id
+%% @param Block whether make a block/unblock request(wait until gateway is exist)
+%%
+%% @end
+-spec get_all_gw(string(), boolean()) -> [#gw_info{}].
+get_all_gw(Name, Block) ->
   NameGW = list_to_atom(Name),
-  ets:tab2list(NameGW).
+  Ret = ets:tab2list(NameGW),
+  case {Ret, Block} of
+    {[], false} ->
+      ?LOGP(warning, "not gateway to fetch from ~p", [Name]),
+      [];
+    {[], true} ->
+      ?LOGP(debug, "not gateway to fetch from ~p, try again", [Name]),
+      get_all_gw(Name, Block);
+    {_, _} ->
+      Ret
+  end.

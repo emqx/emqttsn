@@ -147,7 +147,7 @@ main(PubSub, Opts) ->
   Host = proplists:get_value(host, NOpts),
   Port = proplists:get_value(port, NOpts),
 
-  {ok, Socket, Client, Config} = emqttsn:start_link(Name, NOpts),
+  {ok, Client, Config} = emqttsn:start_link(Name, NOpts),
   emqttsn:add_host(Client, Host, Port, 1),
   emqttsn:connect(Client, 1, true),
   io:format("Client ~s CONNECT finished", [Name]),
@@ -157,7 +157,7 @@ main(PubSub, Opts) ->
       disconnect(Client, NOpts);
     sub ->
       subscribe(Client, Config, NOpts),
-      loop_recv(Socket)
+      loop_recv()
   end,
   ok.
 
@@ -178,10 +178,9 @@ publish(Client, _Config, Opts) ->
   emqttsn:publish(Client, Retain, TopicIdType, TopicIdOrName, Message, true),
   ok.
 
--spec loop_recv(inet:socket()) -> no_return().
-loop_recv(Socket) ->
-  emqttsn_udp:recv(Socket),
-  loop_recv(Socket).
+-spec loop_recv() -> no_return().
+loop_recv() ->
+  loop_recv().
 
 -spec subscribe(emqtsn:client(), config(), [term()]) -> ok.
 subscribe(Client, _Config, Opts) ->
@@ -201,7 +200,7 @@ subscribe(Client, _Config, Opts) ->
 
 -spec disconnect(emqtsn:client(), [term()]) -> ok.
 disconnect(Client, _Opts) ->
-  emqttsn:stop(Client),
+  emqttsn:finalize(Client),
   ok.
 
 -spec maybe_help(sub_cmd(), [term()]) -> ok.

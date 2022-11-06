@@ -23,8 +23,9 @@
 
 -include_lib("stdlib/include/assert.hrl").
 
--export([start_link/2, register/3, subscribe/5, unsubscribe/4, publish/6, add_host/4,
-         connect/3, sleep/3, get_state/1, get_state_name/1, reset_config/2, stop/1, disconnect/1]).
+-export([start_link/1, start_link/2, register/3, subscribe/5, unsubscribe/4, publish/6,
+         add_host/4, connect/3, sleep/3, get_state/1, get_state_name/1, reset_config/2, stop/1,
+         finalize/1, disconnect/1, wait_until_state_name/2]).
 
 -export_type([client/0]).
 
@@ -35,8 +36,6 @@ merge_opt(Config, [{clean_session, Value} | Options]) ->
   merge_opt(Config#config{clean_session = Value}, Options);
 merge_opt(Config, [{max_size, Value} | Options]) ->
   merge_opt(Config#config{max_size = Value}, Options);
-merge_opt(Config, [{auto_discover, Value} | Options]) ->
-  merge_opt(Config#config{auto_discover = Value}, Options);
 merge_opt(Config, [{ack_timeout, Value} | Options]) ->
   merge_opt(Config#config{ack_timeout = Value}, Options);
 merge_opt(Config, [{keep_alive, Value} | Options]) ->
@@ -45,10 +44,6 @@ merge_opt(Config, [{resend_no_qos, Value} | Options]) ->
   merge_opt(Config#config{resend_no_qos = Value}, Options);
 merge_opt(Config, [{max_resend, Value} | Options]) ->
   merge_opt(Config#config{max_resend = Value}, Options);
-merge_opt(Config, [{retry_interval, Value} | Options]) ->
-  merge_opt(Config#config{retry_interval = Value}, Options);
-merge_opt(Config, [{connect_timeout, Value} | Options]) ->
-  merge_opt(Config#config{connect_timeout = Value}, Options);
 merge_opt(Config, [{search_gw_interval, Value} | Options]) ->
   merge_opt(Config#config{search_gw_interval = Value}, Options);
 merge_opt(Config, [{reconnect_max_times, Value} | Options]) ->
@@ -84,34 +79,47 @@ merge_opt(Config, [{_AnyKey, _AnyValue} | Options]) ->
 merge_opt(Config, []) ->
   Config.
 
+%% @doc Create a MQTT-SN client by default options
+%%
+%% @param Name unique name of client, used also as client id
+%%
+%% @equiv start_link(Name, [])
+%% @returns A client object
+%% @end
+-spec start_link(string()) -> {ok, client(), config()} | {error, term()}.
+start_link(Name) ->
+  start_link(Name, []).
+
 %% @doc Create a MQTT-SN client
 %%
 %% @param Name unique name of client, used also as client id
-%% @param Option array of client construction parameters
+%% @param Options array of client construction parameters
 %%
 %% @returns A client object
 %% @end
--spec start_link(string(), [option()]) ->
-                  {ok, inet:socket(), client(), config()} | {error, term()}.
-start_link(Name, Option) ->
+-spec start_link(string(), [option()]) -> {ok, client(), config()} | {error, term()}.
+start_link(Name, Options) ->
   NameLength = string:length(Name),
   ?assert(NameLength >= 1 andalso NameLength =< 23),
-  Config = merge_opt(#config{client_id = Name}, Option),
-  #config{send_port = Port} = Config,
+  Config = merge_opt(#config{client_id = Name}, Options),
 
-  case emqttsn_udp:init_port(Port) of
+  case emqttsn_state:start_link(Name, Config) of
     {error, Reason} ->
-      ?LOGP(error, "port init failed, reason: ~p", [Reason]),
+      ?LOGP(error, "gen_statem init failed, reason: ~p", [Reason]),
       {error, Reason};
-    {ok, Socket} ->
-      case emqttsn_state:start_link(Name, {Socket, Config}) of
-        {error, Reason} ->
-          ?LOGP(error, "gen_statem init failed, reason: ~p", [Reason]),
-          {error, Reason};
-        {ok, StateM} ->
-          {ok, Socket, StateM, Config}
-      end
+    {ok, StateM} ->
+      {ok, StateM, Config}
   end.
+
+%% @doc Block until client reach target state
+%%
+%% @param Client the client object
+%% @param StateNames target state name to be wait for
+%%
+%% @end
+-spec wait_until_state_name(client(), [atom()]) -> ok.
+wait_until_state_name(Client, StateNames) ->
+  wait_until_state_name(Client, StateNames, true).
 
 -spec wait_until_state_name(client(), [atom()], boolean()) -> ok.
 wait_until_state_name(Client, StateNames, Block) ->
@@ -264,21 +272,34 @@ get_state_name(Client) ->
 reset_config(Client, Config) ->
   gen_statem:cast(Client, {config, Config}).
 
+%% @doc Only Stop the state machine client, but not disconnect(non-blocking)
+%%
+%% @param Client the client object
+%% @param Config new config to be set
+%%
+%% @returns socket for low-level API, can be closed if not use
+%% @end
+-spec stop(client()) -> {ok, inet:socket()}.
+stop(Client) ->
+  #state{socket = Socket} = get_state(Client),
+  gen_statem:stop(Client),
+  {ok, Socket}.
+
 %% @doc Stop and disconnect the client(non-blocking)
 %%
 %% @param Client the client object
 %% @param Config new config to be set
 %%
-%% @returns state name
+%% @returns socket for low-level API, can be closed if not use
 %% @end
--spec stop(client()) -> ok.
-stop(Client) ->
+-spec finalize(client()) -> ok.
+finalize(Client) ->
   StateName = get_state_name(Client),
   case StateName =/= initialized andalso StateName =/= found of
     true ->
       disconnect(Client),
-      gen_statem:stop(Client);
+      stop(Client);
     false ->
-      gen_statem:stop(Client)
+      stop(Client)
   end,
   ok.

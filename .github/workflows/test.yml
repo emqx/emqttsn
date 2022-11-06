@@ -1,0 +1,43 @@
+name: Test
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: all tests
+    runs-on: ubuntu-latest
+
+    container:
+      image: erlang:24
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Compile
+      run: rebar3 compile
+    - name: Run tests
+      run: rebar3 ct --cover
+    - name: Run edoc test
+      run: rebar3 edoc
+    - name: Display coverage
+      run: rebar3 cover
+    - name: Upload edoc web
+      uses: actions/upload-artifact@v3
+      with:
+        name: edoc
+        path: ${{ github.workspace }}/doc/
+        retention-days: 1
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    - name: Upload cover web
+      uses: actions/upload-artifact@v3
+      with:
+        name: cover
+        path: ${{ github.workspace }}/_build/test/cover/
+        retention-days: 1
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'

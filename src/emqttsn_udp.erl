@@ -38,7 +38,7 @@
 %% @end
 -spec init_port(inet:port_number()) -> {ok, inet:socket()} | {error, term()}.
 init_port(LocalPort) ->
-  case gen_udp:open(LocalPort, [binary]) of
+  case gen_udp:open(LocalPort, [binary, {active, true}, {broadcast, true}]) of
     {ok, Socket} ->
       {ok, Socket};
     {error, Reason} when LocalPort =:= 0 ->
@@ -81,7 +81,7 @@ connect(Socket, Host, Port) ->
 %% @doc send binary packet to connected gateway
 %%
 %% Caution: need to connect first before call it!
-%% 
+%%
 %% @param Socket the socket object
 %% @param Bin Binary packet send to gateway
 %%
@@ -92,7 +92,7 @@ send(Socket, Bin) ->
   gen_udp:send(Socket, Bin).
 
 %% @doc send binary packet to any host
-%% 
+%%
 %% @param Socket the socket object
 %% @param Bin Binary packet send to gateway
 %% @param Host host of target to send packet
@@ -106,35 +106,25 @@ send_anywhere(Socket, Bin, Host, RemotePort) ->
   gen_udp:send(Socket, {Host, RemotePort}, Bin).
 
 %% @doc broadcast binary packet to local network
-%% 
+%%
 %% @param Socket the socket object
 %% @param Bin Binary packet send to gateway
 %% @param RemotePort port of target to send packet
 %%
 %% @returns ok | {error, not_owner | inet:posix()}
 %% @end
--spec broadcast(inet:socket(), bitstring(), inet:port_number()) ->
-                 {ok, inet:socket()} | {error, term()}.
+-spec broadcast(inet:socket(), bitstring(), inet:port_number()) -> ok | {error, term()}.
 broadcast(Socket, Bin, RemotePort) ->
-  case inet:sockname(Socket) of
-    {ok, {_Host, LocalPort}} ->
-      gen_udp:close(Socket),
-      {ok, TmpSocket} = gen_udp:open(LocalPort, [binary, {broadcast, true}]),
-      case gen_udp:send(TmpSocket, '255.255.255.255', RemotePort, Bin) of
-        ok ->
-          gen_udp:close(TmpSocket),
-          {ok, NewSocket} = gen_udp:open(LocalPort, [binary, {broadcast, true}]),
-          {ok, NewSocket};
-        {error, Reason} ->
-          {error, Reason}
-      end;
+  case gen_udp:send(Socket, '255.255.255.255', RemotePort, Bin) of
     {error, Reason} ->
-      ?LOGP(warning, "boardcast failed:~p", [Reason]),
-      {error, Reason}
+      ?LOGP(warning, "boardcast failed at send data:~p", [Reason]),
+      {error, Reason};
+    ok ->
+      ok
   end.
 
 %% @doc recv and parse incoming packet
-%% 
+%%
 %% @param Socket the socket object
 %% @equiv recv(Socket, 2000)
 %%
@@ -145,13 +135,13 @@ recv(Socket) ->
   recv(Socket, 2000).
 
 %% @doc recv and parse incoming packet at given timeout
-%% 
+%%
 %% @param Socket the socket object
 %% @param Timeout the timeout of recv packet
 %%
 %% @returns {ok, mqttsn_packet()} | {error, udp_receive_timeout}
 %% @end
--spec recv(inet:socket(), pos_integer()) -> {ok, mqttsn_packet()} | {error, udp_receive_timeout}.
+-spec recv(inet:socket(), pos_integer()) -> {ok, mqttsn_packet()} | {error, term()}.
 recv(Socket, Timeout) ->
   receive
     {udp, Socket, _, _, Bin} ->
@@ -161,11 +151,11 @@ recv(Socket, Timeout) ->
           {ok, Packet};
         {error, Reason} ->
           ?LOGP(warning, "parse packet ~p failed: ~p", [Bin, Reason]),
-          recv(Socket, Timeout)
+          {error, Reason}
       end;
     Other ->
-      ?LOGP(warning, "receive_response() Other message: ~p", [{unexpected_udp_data, Other}]),
-      recv(Socket, Timeout)
+      ?LOGP(warning, "receive_response() Other message: ~p", [{unexpected_data, Other}]),
+      {error, unexpected_data}
   after Timeout ->
-    udp_receive_timeout
+    {error, udp_receive_timeout}
   end.

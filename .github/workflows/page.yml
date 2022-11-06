@@ -1,0 +1,42 @@
+name: Page Deploy
+
+on:
+  push:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    # bypass for https://github.com/actions/download-artifact/issues/60
+    - name: Wait for edoc generated
+      uses: lewagon/wait-on-check-action@v1.2.0
+      with:
+        ref: ${{ github.ref }}
+        check-name: 'all tests'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        wait-interval: 10
+    - name: Download artifact
+      uses: dawidd6/action-download-artifact@v2
+      with:
+        workflow: test.yml
+        workflow_conclusion: success
+        check_artifacts: true
+    - name: Setup Pages
+      uses: actions/configure-pages@v2
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v1
+      with:
+        path: '.'
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v1
