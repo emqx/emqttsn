@@ -414,7 +414,7 @@ send_pingresp(Config, Socket) ->
                          inet:socket(),
                          inet:port_number(),
                          non_neg_integer()) ->
-                          {ok, inet:socket()} | {error, term()}.
+                          ok | {error, term()}.
 broadcast_searchgw(Config, Socket, RemotePort, Radius) ->
   Packet = ?SEARCHGW_PACKET(Radius),
   Bin = emqttsn_frame:serialize(Packet, Config),

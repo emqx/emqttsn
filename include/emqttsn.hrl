@@ -175,7 +175,7 @@
 %%--------------------------------------------------------------------
 
 %% Default address
--define(DEFAULT_ADDRESS, {127, 0, 0, 1}).
+-define(DEFAULT_ADDRESS, {0, 0, 0, 0}).
 
 %% MQTT-SN flag variable
 
@@ -281,8 +281,7 @@
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?GWINFO},
                        payload =
                                #mqttsn_packet_gwinfo{source = ?SERVER,
-                                                     gateway_id = GateWayId,
-                                                     gateway_add = {0, 0, 0, 0}}}).
+                                                     gateway_id = GateWayId}}).
 -define(GWINFO_PACKET(GateWayId, GateWayAdd),
         #mqttsn_packet{header = #mqttsn_packet_header{type = ?GWINFO},
                        payload =
@@ -516,27 +515,39 @@
 
 -type msg_handler() :: fun((topic_id(), string()) -> term()).
 -type option() ::
-        {strict_mode, boolean()} | {clean_session, boolean()} | {max_size, pos_integer()} |
-        {auto_discover, boolean()} | {ack_timeout, non_neg_integer()} |
-        {keep_alive, non_neg_integer()} | {resend_no_qos, boolean()} |
-        {max_resend, non_neg_integer()} | {retry_interval, non_neg_integer()} |
-        {connect_timeout, non_neg_integer()} | {search_gw_interval, non_neg_integer()} |
-        {reconnect_max_times, non_neg_integer()} | {max_message_each_topic, non_neg_integer()} |
-        {msg_handler, [msg_handler()]} | {send_port, inet:port_number()} | {host, host()} |
-        {port, inet:port_number()} | {client_id, string()} | {proto_ver, version()} |
-        {proto_name, string()} | {radius, non_neg_integer()} | {duration, non_neg_integer()} |
-        {qos, qos()} | {will, boolean()} | {will_topic, string()} | {will_msg, string()}.
+        {strict_mode, boolean()} |
+        {clean_session, boolean()} |
+        {max_size, pos_integer()} |
+        {ack_timeout, non_neg_integer()} |
+        {keep_alive, non_neg_integer()} |
+        {resend_no_qos, boolean()} |
+        {max_resend, non_neg_integer()} |
+        {search_gw_interval, non_neg_integer()} |
+        {reconnect_max_times, non_neg_integer()} |
+        {max_message_each_topic, non_neg_integer()} |
+        {msg_handler, [msg_handler()]} |
+        {send_port, inet:port_number()} |
+        {host, host()} |
+        {port, inet:port_number()} |
+        {client_id, string()} |
+        {proto_ver, version()} |
+        {proto_name, string()} |
+        {radius, non_neg_integer()} |
+        {duration, non_neg_integer()} |
+        {qos, qos()} |
+        {will, boolean()} |
+        {will_topic, string()} |
+        {will_msg, string()}.
 
 -record(config,
         {% system action config
          strict_mode = false :: boolean(),
-         clean_session = true :: boolean(), max_size = ?MAX_PACKET_SIZE :: pos_integer(),
-         auto_discover = true :: boolean(),
+         clean_session = true :: boolean(),
+         max_size = ?MAX_PACKET_SIZE :: pos_integer(),
          ack_timeout = ?DEFAULT_ACK_TIMEOUT :: non_neg_integer(),
          keep_alive = ?DEFAULT_PING_INTERVAL :: non_neg_integer(),
-         resend_no_qos = true :: boolean(), max_resend = ?DEFAULT_MAX_RESEND :: non_neg_integer(),
-         retry_interval = ?DEFAULT_RETRY_INTERVAL :: non_neg_integer(),
-         connect_timeout = ?DEFAULT_CONNECT_TIMEOUT :: non_neg_integer(),
+         resend_no_qos = true :: boolean(),
+         max_resend = ?DEFAULT_MAX_RESEND :: non_neg_integer(),
          search_gw_interval = ?DEFAULT_SEARCH_GW_INTERVAL :: non_neg_integer(),
          reconnect_max_times = ?DEFAULT_MAX_RECONNECT :: non_neg_integer(),
          max_message_each_topic = 100 :: non_neg_integer(),
@@ -546,10 +557,15 @@
          % protocol config
          client_id = ?CLIENT_ID :: string(),
          proto_ver = ?MQTTSN_PROTO_V1_2 :: version(),
-         proto_name = ?MQTTSN_PROTO_V1_2_NAME :: string(), radius = 3 :: non_neg_integer(),
-         duration = 50 :: non_neg_integer(), will_qos = ?QOS_0 :: qos(),
-         recv_qos = ?QOS_0 :: qos(), pub_qos = ?QOS_0 :: qos(), will = false :: boolean(),
-         will_topic = "" :: string(), will_msg = "" :: string()}).
+         proto_name = ?MQTTSN_PROTO_V1_2_NAME :: string(),
+         radius = 3 :: non_neg_integer(),
+         duration = 50 :: non_neg_integer(),
+         will_qos = ?QOS_0 :: qos(),
+         recv_qos = ?QOS_0 :: qos(),
+         pub_qos = ?QOS_0 :: qos(),
+         will = false :: boolean(),
+         will_topic = "" :: string(),
+         will_msg = "" :: string()}).
 
 -type config() :: #config{}.
 

@@ -1,7 +1,7 @@
 @author Lenery Chen <starkind1997@gmail.com>
 @copyright MIT
 @version 1.0.0
-@title Enjoy your tour of MQTT-SN communication!
+@title emqttsn: Enjoy your tour of MQTT-SN communication!
 @doc emqttsn is a light-weight MQTT-SN client, we provide 
 three ways to use this client.
 

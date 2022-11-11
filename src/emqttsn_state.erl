@@ -32,21 +32,31 @@
 callback_mode() ->
   [handle_event_function, state_enter].
 
--spec start_link(string(), {inet:socket(), config()}) -> {ok, pid()} | {error, term()}.
-start_link(Name, {Socket, Config}) ->
-  case gen_statem:start_link({global, Name}, ?MODULE, {Name, Socket, Config}, []) of
-    {'ok', Pid} -> {ok, Pid};
-    'ignore' -> 
-      ?LOGP(error, "gen_statem starting process returns ignore"),
-      {error, ignore};
-    {error, Reason} -> 
-      ?LOGP(error, "gen_statem starting process failed, reason: ~p", [Reason]),
-      {error, Reason}
+-spec start_link(string(), config()) -> {ok, pid()} | {error, term()}.
+start_link(Name, Config) ->
+  #config{send_port = Port} = Config,
+      case gen_statem:start_link({global, Name}, ?MODULE, {Name, Port, Config}, []) of
+        {'ok', Pid} -> 
+          {ok, Pid};
+        'ignore' -> 
+          ?LOGP(error, "gen_statem starting process returns ignore"),
+          {error, ignore};
+        {error, Reason} -> 
+          ?LOGP(error, "gen_statem starting process failed, reason: ~p", [Reason]),
+          {error, Reason}
   end.
+  
 
--spec init({string(), inet:socket(), config()}) -> {ok, atom(), state()}.
-init({Name, Socket, Config}) ->
-  {ok, initialized, #state{name = Name, socket = Socket, config = Config}}.
+-spec init({string(), inet:port_number(), config()}) -> {ok, atom(), state()} | {stop, term()}.
+init({Name, Port, Config}) ->
+  emqttsn_utils:init_global_store(Name),
+  case emqttsn_udp:init_port(Port) of
+    {error, Reason} ->
+      ?LOGP(error, "port init failed, reason: ~p", [Reason]),
+      {stop, Reason};
+    {ok, Socket} ->
+      {ok, initialized, #state{name = Name, socket = Socket, config = Config}}
+    end.
 
 %-------------------------------------------------------------------------------
 % Client is disconnected or before connect
@@ -68,9 +78,10 @@ handle_event(enter, _OldState, initialized,
   ?LOG_STATE(debug, "Find the Host of service gateway", [], State),
   #config{search_gw_interval = Interval} = Config,
   case emqttsn_send:broadcast_searchgw(Config, Socket, ?DEFAULT_PORT, ?DEFAULT_RADIUS) of
-    {ok, NewSocket} -> 
-      {keep_state, State#state{socket = NewSocket}, {state_timeout, Interval, {}}};
-    {error, _Reason} ->
+    ok -> 
+      {keep_state, State, {state_timeout, Interval, {}}};
+    {error, Reason} ->
+      ?LOG_STATE(warning, "Boardcast SearchGw failed: ~p", [Reason], State),
       {keep_state, State, {state_timeout, Interval, {}}}
     end;
 
@@ -137,7 +148,7 @@ handle_event(cast, {?GWINFO_PACKET(GateWayId), Host, Port},
 %% @end
 %%------------------------------------------------------------------------------
 
-handle_event(cast, {?GWINFO_PACKET(GateWayId, GateWayAdd), _Host, _Port},
+handle_event(cast, ?GWINFO_PACKET(GateWayId, GateWayAdd),
              _StateName, State = #state{name = Name}) ->
   ?LOG_STATE(notice, "Fetch gateway id ~p at ~p:~p from received broadcast GWINFO packet by client",
               [GateWayId, GateWayAdd, ?DEFAULT_PORT], State),
@@ -1368,13 +1379,13 @@ handle_event(info,{udp_error, _Socket, Reason}, _StateName, State) ->
   {keep_state, State};
 
 handle_event(enter, Args, StateName, State) ->
-  ?LOG_DEBUG("useless enter with ~p at ~p",
-             [Args, StateName]),
+  ?LOG_STATE(debug, "useless enter with ~p at ~p",
+             [Args, StateName], State),
   {keep_state, State};
 
 handle_event(Operation, Args, StateName, State) ->
-  ?LOG_WARNING("unsupported operation ~p with ~p at ~p",
-             [Operation, Args, StateName]),
+  ?LOG_STATE(warning, "unsupported operation ~p with ~p at ~p",
+             [Operation, Args, StateName], State),
   {keep_state, State}.
 %%------------------------------------------------------------------------------
 %% @doc Judge whether to reserve the source of sender
